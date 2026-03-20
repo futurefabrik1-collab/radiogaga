@@ -74,7 +74,7 @@ async function ensureSilence() {
   try {
     await execFileAsync('ffmpeg', [
       '-f', 'lavfi', '-i', 'aevalsrc=0',
-      '-t', '5',
+      '-t', '2',
       '-c:a', 'libmp3lame', '-ab', '128k', '-ar', '44100',
       '-y', SILENCE_PATH,
     ]);
@@ -121,25 +121,52 @@ async function pipeSegment(segment, stdin) {
   console.log(`[stream] >> ${segment.type.toUpperCase()}: ${segment.title}`);
 
   const MAX_MUSIC_MS = 240_000; // 4 min hard cap for music tracks
+  const FADE_OUT_S = 4;   // fade-out duration for music tracks
+  const FADE_IN_S = 0.5;  // subtle fade-in on all segments to prevent click/pop
   let durationMs = await getAudioDurationMs(segment.path)
     ?? (segment.duration ? segment.duration * 1000 : 30000);
 
-  // Cap music tracks at 4 minutes — trim file with ffmpeg if needed
-  if (segment.type === 'music' && durationMs > MAX_MUSIC_MS) {
+  const durationS = durationMs / 1000;
+  const isMusic = segment.type === 'music';
+  const needsProcessing = isMusic || segment.type === 'jingle';
+
+  // Music and jingles: apply fade-out (and trim if over 4 min)
+  // All other segments: apply a subtle fade-in to prevent pops
+  {
     try {
-      const trimmedPath = segment.path.replace(/\.mp3$/, '-trimmed.mp3');
-      await execFileAsync('ffmpeg', [
-        '-i', segment.path,
-        '-t', String(MAX_MUSIC_MS / 1000),
-        '-af', `afade=t=out:st=${(MAX_MUSIC_MS / 1000) - 3}:d=3`,
-        '-c:a', 'libmp3lame', '-ab', '128k', '-ar', '44100',
-        '-y', trimmedPath,
-      ]);
-      console.log(`[stream] Trimmed ${Math.round(durationMs / 1000)}s → ${MAX_MUSIC_MS / 1000}s: ${segment.title}`);
-      segment.path = trimmedPath;
-      durationMs = MAX_MUSIC_MS;
+      const processedPath = segment.path.replace(/\.mp3$/, '-proc.mp3');
+      const filters = [];
+
+      // Fade-in on everything (prevents click between segments)
+      filters.push(`afade=t=in:d=${FADE_IN_S}`);
+
+      if (isMusic) {
+        const effectiveDuration = Math.min(durationS, MAX_MUSIC_MS / 1000);
+        // Fade-out on music tracks
+        filters.push(`afade=t=out:st=${effectiveDuration - FADE_OUT_S}:d=${FADE_OUT_S}`);
+
+        const args = ['-i', segment.path];
+        if (durationMs > MAX_MUSIC_MS) {
+          args.push('-t', String(MAX_MUSIC_MS / 1000));
+          console.log(`[stream] Trimmed ${Math.round(durationS)}s → ${MAX_MUSIC_MS / 1000}s: ${segment.title}`);
+        }
+        args.push('-af', filters.join(','),
+          '-c:a', 'libmp3lame', '-ab', '128k', '-ar', '44100', '-y', processedPath);
+        await execFileAsync('ffmpeg', args);
+        segment.path = processedPath;
+        if (durationMs > MAX_MUSIC_MS) durationMs = MAX_MUSIC_MS;
+      } else {
+        // Non-music: just fade-in
+        await execFileAsync('ffmpeg', [
+          '-i', segment.path,
+          '-af', filters.join(','),
+          '-c:a', 'libmp3lame', '-ab', '128k', '-ar', '44100', '-y', processedPath,
+        ]);
+        segment.path = processedPath;
+      }
     } catch (err) {
-      console.warn(`[stream] Trim failed, playing full: ${err.message}`);
+      // If processing fails, play the original file unchanged
+      console.warn(`[stream] Audio processing failed, playing raw: ${err.message}`);
     }
   }
 
@@ -166,7 +193,7 @@ async function pipeSilence(stdin) {
     return;
   }
   await pipeFile(SILENCE_PATH, stdin);
-  await new Promise(r => setTimeout(r, 5000)); // silence is 5s — wait it out
+  await new Promise(r => setTimeout(r, 2000)); // silence is 2s — wait it out
 }
 
 function startFFmpeg() {

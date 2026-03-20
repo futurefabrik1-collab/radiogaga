@@ -3,7 +3,6 @@ import AtmosphericCanvas from "@/components/AtmosphericCanvas";
 import LightNode from "@/components/LightNode";
 import ContentSection from "@/components/ContentSection";
 import ScrollSections from "@/components/ScrollSections";
-import LanguageToggle from "@/components/LanguageToggle";
 import RadioPlayer from "@/components/RadioPlayer";
 import TelegramPanel from "@/components/TelegramPanel";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -12,8 +11,12 @@ export default function Index() {
   const [mouseX, setMouseX] = useState(0);
   const [mouseY, setMouseY] = useState(0);
   const [scrollProgress, setScrollProgress] = useState(0);
+  const [scrollSpeed, setScrollSpeed] = useState(0);
   const [loaded, setLoaded] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const lastScrollY = useRef(0);
+  const lastScrollTime = useRef(Date.now());
+  const scrollSpeedRef = useRef(0);
   const { t } = useLanguage();
 
   useEffect(() => {
@@ -27,15 +30,35 @@ export default function Index() {
   }, []);
 
   useEffect(() => {
+    let decayRaf: number;
+    const decay = () => {
+      scrollSpeedRef.current *= 0.92;
+      if (scrollSpeedRef.current < 0.005) scrollSpeedRef.current = 0;
+      setScrollSpeed(scrollSpeedRef.current);
+      decayRaf = requestAnimationFrame(decay);
+    };
+    decayRaf = requestAnimationFrame(decay);
+
     const handleScroll = () => {
       const el = containerRef.current;
       if (!el) return;
       const scrollTop = window.scrollY;
       const scrollHeight = el.scrollHeight - window.innerHeight;
       setScrollProgress(Math.min(1, Math.max(0, scrollTop / scrollHeight)));
+
+      const now = Date.now();
+      const dt = Math.max(1, now - lastScrollTime.current);
+      const dy = Math.abs(scrollTop - lastScrollY.current);
+      const velocity = Math.min(1, dy / dt / 3); // normalise: ~3000px/s = 1.0
+      scrollSpeedRef.current = Math.max(scrollSpeedRef.current, velocity);
+      lastScrollY.current = scrollTop;
+      lastScrollTime.current = now;
     };
     window.addEventListener("scroll", handleScroll, { passive: true });
-    return () => window.removeEventListener("scroll", handleScroll);
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+      cancelAnimationFrame(decayRaf);
+    };
   }, []);
 
   const vw = typeof window !== "undefined" ? window.innerWidth : 1200;
@@ -57,7 +80,6 @@ export default function Index() {
     >
       <div className="grain-overlay" />
       <AtmosphericCanvas scrollProgress={scrollProgress} mouseX={mouseX} mouseY={mouseY} />
-      <LanguageToggle />
 
       <section className="fixed inset-0 z-10 flex flex-col items-center justify-center pointer-events-none">
         <div
@@ -90,7 +112,7 @@ export default function Index() {
       >
         <div className="pointer-events-auto">
           {nodes.map((node) => (
-            <LightNode key={node.id} {...node} mouseX={mouseX} mouseY={mouseY}>
+            <LightNode key={node.id} {...node} mouseX={mouseX} mouseY={mouseY} scrollSpeed={scrollSpeed}>
               <NodeContent id={node.id} />
             </LightNode>
           ))}
@@ -100,26 +122,26 @@ export default function Index() {
       <ScrollSections scrollProgress={scrollProgress} />
       <PoeticOverlays scrollProgress={scrollProgress} loaded={loaded} />
 
-      {/* Telegram bot panel — bottom-right corner */}
+      {/* Telegram bot panel — top centre */}
       <div
-        className="fixed bottom-24 right-4 z-50 transition-opacity duration-700"
+        className="fixed top-[18%] left-1/2 -translate-x-1/2 z-40 transition-opacity duration-700"
         style={{ opacity: loaded ? 1 : 0 }}
       >
-        <TelegramPanel />
+        <TelegramPanel compact />
       </div>
 
-      {/* Ko-fi support button — bottom-left */}
+      {/* Ko-fi support button — bottom centre, above player */}
       <a
         href="https://ko-fi.com/radiogaga"
         target="_blank"
         rel="noopener noreferrer"
-        className="fixed bottom-24 left-4 z-50 flex items-center gap-2 px-4 py-2 rounded-full bg-foreground/10 backdrop-blur-sm border border-foreground/10 text-foreground/70 hover:text-foreground hover:bg-foreground/20 transition-all duration-300 pointer-events-auto"
+        className="fixed bottom-[10.5rem] left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2 rounded-full bg-foreground/10 backdrop-blur-sm border border-foreground/10 text-foreground/70 hover:text-foreground hover:bg-foreground/20 transition-all duration-300 pointer-events-auto"
         style={{ opacity: loaded ? 0.8 : 0, transition: "opacity 1s ease 1s" }}
       >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
           <path d="M18 8h1a4 4 0 010 8h-1" /><path d="M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8z" /><line x1="6" y1="1" x2="6" y2="4" /><line x1="10" y1="1" x2="10" y2="4" /><line x1="14" y1="1" x2="14" y2="4" />
         </svg>
-        <span className="text-xs font-mono tracking-wider uppercase">Support</span>
+        <span className="text-[10px] font-mono tracking-wider uppercase">Support</span>
       </a>
 
       <RadioPlayer />

@@ -104,7 +104,7 @@ export default function RadioPlayer() {
   }, [playing, analyserRef]);
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 flex flex-col items-center justify-center">
+    <div className="fixed bottom-8 left-0 right-0 z-50 flex flex-col items-center justify-center">
 
       {/* Show picker */}
       {showPicker && (
@@ -130,7 +130,7 @@ export default function RadioPlayer() {
         </div>
       )}
 
-      <div className="content-panel flex flex-col gap-2 px-5 pt-2.5 pb-3 mb-6 mx-4 max-w-md w-full">
+      <div className="content-panel flex flex-col gap-2 px-5 pt-2.5 pb-3 mb-10 mx-4 max-w-md w-full">
 
         {/* Now-playing info strip */}
         <div className="flex items-center justify-between min-h-[18px]">

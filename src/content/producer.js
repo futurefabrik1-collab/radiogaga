@@ -31,6 +31,7 @@ import { initFoleyPool, startBedWorker } from './studioFx.js';
 const POLL_INTERVAL_MS = 4000;
 const HEADLINE_TTL_MS = 15 * 60 * 1000;
 const EMERGENCY_BUFFER_S = 60; // pre-emptively pull from catalog if queue below this
+const MAX_MUSIC_STREAK_S = 12 * 60; // force a talk segment if no talk in 12 minutes (guarantees talk every 15 min with buffer)
 
 const lagTracker = {
   dj: [],
@@ -102,6 +103,7 @@ let cycleCount = 0;       // full DJ+music cycles since last advert
 let lastSlotId = null;
 let lastTrackInfo = null; // { title, creator, mood } — for back-announce after track plays
 let lastNewsHour = -1;   // prevent duplicate news per hour
+let lastTalkTime = Date.now(); // timestamp of last talk segment queued
 const COMPETITION_EVERY_N_CYCLES = 5;
 
 async function refreshHeadlines() {
@@ -153,6 +155,7 @@ async function produceDJSegment(slot) {
     createdAt: new Date().toISOString(),
   });
 
+  lastTalkTime = Date.now();
   djSegmentCount++;
 }
 
@@ -267,6 +270,7 @@ async function produceGuestSegment(slot) {
     console.log(`[producer] ${slot.name}: guest interview`);
     const segment = await generateGuestSegment(slot);
     queue.push({ ...segment, createdAt: new Date().toISOString() });
+    lastTalkTime = Date.now();
   } catch (err) {
     console.error('[producer] Guest segment failed:', err.message);
   }
@@ -350,10 +354,16 @@ async function loop() {
     //   2. If talk ratio is below the show's target AND we haven't hit the cap → talk.
     //   3. Otherwise → play music.
     const currentRatio = ratioTracker.talkRatio();
-    const wantsTalk = ratioTracker.needsMoreTalk(slot.talkRatio)
+    const talkOverdue = Date.now() - lastTalkTime >= MAX_MUSIC_STREAK_S * 1000;
+    const wantsTalk = (ratioTracker.needsMoreTalk(slot.talkRatio) || talkOverdue)
                       && djSegmentCount < slot.djPerMusic;
 
-    if (djSegmentCount >= slot.djPerMusic || !wantsTalk) {
+    // Force talk if it's been more than 12 minutes — guarantees talk every ~15 min
+    if (talkOverdue) {
+      console.log(`[producer] Talk overdue (${Math.round((Date.now() - lastTalkTime) / 60000)}min since last) — forcing DJ/guest segment`);
+    }
+
+    if (!talkOverdue && (djSegmentCount >= slot.djPerMusic || !wantsTalk)) {
       // Time for music
       console.log(`[producer] ${slot.name}: music (${slot.musicDuration}s) [talk ratio: ${(currentRatio * 100).toFixed(0)}%/${(slot.talkRatio * 100).toFixed(0)}%]`);
       await produceMusicSegment(slot);

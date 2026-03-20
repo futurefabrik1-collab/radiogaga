@@ -91,7 +91,7 @@ shows:
       mood: "gentle acoustic electronic, morning light, soft beats, birds, hopeful and warm"
       duration: 35
       dj_per_music: 3
-      talk_ratio: 0.30
+      talk_ratio: 0.36
     adverts:
       frequency: 5
       humor: light
@@ -122,8 +122,8 @@ shows:
     music:
       mood: "upbeat indie pop electronic, driving beat, optimistic morning commute energy"
       duration: 30
-      dj_per_music: 3
-      talk_ratio: 0.35
+      dj_per_music: 4
+      talk_ratio: 0.42
     adverts:
       frequency: 3
       humor: light
@@ -184,8 +184,8 @@ shows:
     music:
       mood: "groovy electronic funk, upbeat dancefloor-adjacent, bright and fresh"
       duration: 30
-      dj_per_music: 3
-      talk_ratio: 0.30
+      dj_per_music: 4
+      talk_ratio: 0.36
     adverts:
       frequency: 3
       humor: absurd

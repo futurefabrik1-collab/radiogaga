@@ -12,32 +12,68 @@ interface LightNodeProps {
   mouseX: number;
   mouseY: number;
   freqBand?: number; // which frequency band (index) this node reacts to
+  scrollSpeed?: number; // 0..1 normalised scroll velocity
 }
 
-export default function LightNode({ id, label, x, y, hue, children, mouseX, mouseY, freqBand = 0 }: LightNodeProps) {
+export default function LightNode({ id, label, x, y, hue, children, mouseX, mouseY, freqBand = 0, scrollSpeed = 0 }: LightNodeProps) {
   const [expanded, setExpanded] = useState(false);
   const { t } = useLanguage();
   const { playing, getFrequencyData } = useAudio();
   const [audioLevel, setAudioLevel] = useState(0);
+  const [audioPeak, setAudioPeak] = useState(0);
+  const [audioDrift, setAudioDrift] = useState({ dx: 0, dy: 0 });
   const animRef = useRef<number>(0);
+  const peakRef = useRef(0);
+  const smoothRef = useRef(0);
 
-  // Poll frequency data when playing
+  // Poll frequency data when playing — with peak tracking and smoothing
   useEffect(() => {
     if (!playing) {
       setAudioLevel(0);
+      setAudioPeak(0);
+      setAudioDrift({ dx: 0, dy: 0 });
+      smoothRef.current = 0;
+      peakRef.current = 0;
       return;
     }
 
     const tick = () => {
       const data = getFrequencyData();
       if (data) {
-        // Sample a range of bins around the freqBand index
-        const start = Math.min(freqBand * 8, data.length - 8);
+        // Sample a wider range for more responsiveness
+        const start = Math.min(freqBand * 8, data.length - 16);
         let sum = 0;
-        for (let i = start; i < start + 8; i++) {
-          sum += data[i];
+        let peak = 0;
+        for (let i = start; i < start + 16; i++) {
+          const v = data[i];
+          sum += v;
+          if (v > peak) peak = v;
         }
-        setAudioLevel(sum / (8 * 255)); // 0..1
+        const raw = sum / (16 * 255);
+        const peakNorm = peak / 255;
+
+        // Fast attack, slower release for punchier feel
+        smoothRef.current = raw > smoothRef.current
+          ? raw * 0.7 + smoothRef.current * 0.3   // fast attack
+          : raw * 0.15 + smoothRef.current * 0.85; // slow release
+
+        // Peak hold with decay
+        if (peakNorm > peakRef.current) {
+          peakRef.current = peakNorm;
+        } else {
+          peakRef.current *= 0.95;
+        }
+
+        setAudioLevel(smoothRef.current);
+        setAudioPeak(peakRef.current);
+
+        // Drift position based on frequency energy — nodes "breathe" with audio
+        const t = Date.now() * 0.001;
+        const driftAmount = smoothRef.current * 12 + peakRef.current * 8;
+        setAudioDrift({
+          dx: Math.sin(t * 1.3 + freqBand) * driftAmount,
+          dy: Math.cos(t * 0.9 + freqBand * 0.7) * driftAmount,
+        });
       }
       animRef.current = requestAnimationFrame(tick);
     };
@@ -51,13 +87,14 @@ export default function LightNode({ id, label, x, y, hue, children, mouseX, mous
   const dist = Math.sqrt(dx * dx + dy * dy);
   const proximity = Math.max(0, 1 - dist / 300);
 
-  // Combine mouse proximity with audio reactivity
-  const reactivity = Math.min(1, proximity + audioLevel * 1.2);
+  // Combine mouse proximity, audio, peaks, and scroll speed
+  const reactivity = Math.min(1, proximity + audioLevel * 1.5 + audioPeak * 0.5 + scrollSpeed * 0.8);
 
-  const glowSize = 60 + reactivity * 60 + audioLevel * 30;
-  const alpha = 0.2 + reactivity * 0.5;
-  const coreScale = 1 + audioLevel * 1.5;
-  const coreBrightness = 65 + audioLevel * 20;
+  const glowSize = 60 + reactivity * 80 + audioLevel * 60 + audioPeak * 40 + scrollSpeed * 50;
+  const alpha = 0.15 + reactivity * 0.6 + audioPeak * 0.25 + scrollSpeed * 0.3;
+  const coreScale = 1 + audioLevel * 3 + audioPeak * 2 + scrollSpeed * 2;
+  const coreBrightness = 60 + audioLevel * 25 + audioPeak * 15 + scrollSpeed * 15;
+  const hueShift = audioPeak * 20; // hue shifts on peaks for extra punch
 
   const handleClick = useCallback(() => {
     setExpanded(!expanded);
@@ -67,10 +104,10 @@ export default function LightNode({ id, label, x, y, hue, children, mouseX, mous
     <>
       <button
         onClick={handleClick}
-        className="absolute z-20 group cursor-pointer transition-all duration-100"
+        className="absolute z-20 group cursor-pointer"
         style={{
-          left: `${x}px`,
-          top: `${y}px`,
+          left: `${x + audioDrift.dx}px`,
+          top: `${y + audioDrift.dy}px`,
           transform: "translate(-50%, -50%)",
         }}
         aria-label={`Explore ${label}`}
@@ -83,7 +120,7 @@ export default function LightNode({ id, label, x, y, hue, children, mouseX, mous
             height: glowSize * 2,
             left: -glowSize,
             top: -glowSize,
-            background: `radial-gradient(circle, hsla(${hue}, 80%, ${coreBrightness}%, ${alpha * 0.3}) 0%, transparent 70%)`,
+            background: `radial-gradient(circle, hsla(${hue + hueShift}, 80%, ${coreBrightness}%, ${alpha * 0.3}) 0%, transparent 70%)`,
             transition: playing ? "none" : "all 0.7s ease",
           }}
         />
@@ -108,8 +145,8 @@ export default function LightNode({ id, label, x, y, hue, children, mouseX, mous
             height: `${3 * coreScale}px`,
             marginLeft: `${-(3 * coreScale - 12) / 2}px`,
             marginTop: `${-(3 * coreScale - 12) / 2}px`,
-            background: `hsla(${hue}, 80%, ${coreBrightness}%, ${0.6 + reactivity * 0.4})`,
-            boxShadow: `0 0 ${10 + reactivity * 25 + audioLevel * 15}px hsla(${hue}, 80%, ${coreBrightness}%, ${0.4 + reactivity * 0.4})`,
+            background: `hsla(${hue + hueShift}, 85%, ${coreBrightness}%, ${0.6 + reactivity * 0.4})`,
+            boxShadow: `0 0 ${10 + reactivity * 30 + audioLevel * 25 + audioPeak * 20}px hsla(${hue + hueShift}, 85%, ${coreBrightness}%, ${0.4 + reactivity * 0.5})`,
             transition: playing ? "none" : "all 0.5s ease",
           }}
         />

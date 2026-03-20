@@ -50,7 +50,6 @@ export default function ScrollSections({ scrollProgress }: Props) {
 
       <div className="relative z-10 pb-24">
         <div className="max-w-md mx-auto px-8 text-center space-y-4">
-          <p className="text-poetic text-2xl">VOID.FM</p>
           <p className="text-label text-xs opacity-40">{t("footer.tagline")}</p>
         </div>
       </div>

@@ -68,8 +68,8 @@ export async function textToMp3(text, voiceOverride = null, opts = {}) {
 
   await execFileAsync('edge-tts', [
     '--voice', voice,
-    '--rate', prosody.rate,
-    '--pitch', prosody.pitch,
+    `--rate=${prosody.rate}`,
+    `--pitch=${prosody.pitch}`,
     '--text', text,
     '--write-media', outPath,
   ]);

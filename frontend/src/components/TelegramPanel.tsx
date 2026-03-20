@@ -16,7 +16,7 @@ interface NowPlaying {
   slot: string;
 }
 
-export default function TelegramPanel() {
+export default function TelegramPanel({ compact = false }: { compact?: boolean }) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [nowPlaying, setNowPlaying] = useState<NowPlaying | null>(null);
 
@@ -35,6 +35,26 @@ export default function TelegramPanel() {
     const id = setInterval(fetchAll, 15000);
     return () => clearInterval(id);
   }, []);
+
+  if (compact) {
+    return (
+      <a
+        href={BOT_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="block group cursor-pointer"
+      >
+        <QRCodeSVG
+          value={BOT_URL}
+          size={96}
+          bgColor="transparent"
+          fgColor="hsla(35, 80%, 65%, 0.75)"
+          level="M"
+          className="group-hover:opacity-100 opacity-70 transition-opacity"
+        />
+      </a>
+    );
+  }
 
   return (
     <div className="content-panel flex flex-col gap-3 p-4 w-56">
@@ -61,20 +81,26 @@ export default function TelegramPanel() {
         </div>
       )}
 
-      <div className="flex flex-col items-center gap-2">
+      <a
+        href={BOT_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex flex-col items-center gap-2 group cursor-pointer"
+      >
         <QRCodeSVG
           value={BOT_URL}
           size={96}
           bgColor="transparent"
           fgColor="hsla(35, 80%, 65%, 0.85)"
           level="M"
+          className="group-hover:opacity-100 opacity-85 transition-opacity"
         />
-        <span className="text-[9px] font-mono text-foreground/40 uppercase tracking-widest text-center leading-tight">
-          scan to join
+        <span className="text-[9px] font-mono text-foreground/40 group-hover:text-foreground/70 uppercase tracking-widest text-center leading-tight transition-colors">
+          scan or tap to join
           <br />
           @radiogaga_bot
         </span>
-      </div>
+      </a>
     </div>
   );
 }
