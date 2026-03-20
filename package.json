@@ -1,0 +1,23 @@
+{
+  "name": "ai-radio",
+  "version": "0.0.1",
+  "description": "radioGAGA — AI-powered 24/7 radio station at radiogaga.ai",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "icecast": "mkdir -p /tmp/icecast-logs && icecast -c icecast.xml -b",
+    "ollama": "ollama serve",
+    "frontend": "cd frontend && npm run dev",
+    "radio": "concurrently --names icecast,ollama,backend,frontend --prefix-colors cyan,yellow,green,blue \"npm run icecast\" \"npm run ollama\" \"npm run dev\" \"npm run frontend\""
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.8.0",
+    "concurrently": "^9.2.1",
+    "dotenv": "^17.3.1",
+    "express": "^4.19.2",
+    "grammy": "^1.41.1",
+    "js-yaml": "^4.1.1",
+    "ollama": "^0.5.0"
+  }
+}

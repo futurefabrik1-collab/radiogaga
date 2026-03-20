@@ -1,0 +1,12 @@
+node_modules/
+.env
+dist/
+.DS_Store
+venv/
+tmp/
+scripts/*.db
+scripts/*.db-shm
+scripts/*.db-wal
+data/*.db
+data/*.db-shm
+data/*.db-wal
