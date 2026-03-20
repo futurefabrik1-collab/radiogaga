@@ -8,9 +8,7 @@
 //
 // Applied to ALL shows (chaos is the brand).
 
-import { Ollama } from 'ollama';
-
-const ollama = new Ollama({ host: 'http://localhost:11434' });
+import { ollama } from './ollama.js';
 
 const HUMOR_GUIDANCE = {
   dark: `Use dark, unsettling humour. The epic retelling should end somewhere ominous.
@@ -46,6 +44,19 @@ const FILTER_PROMPT = (script, humor) => `You are the chaos editor for radioGAGA
 
 Your job: take the script below and EPICALLY REWRITE IT with these rules:
 
+RULE ZERO — ANONYMITY (MANDATORY, NON-NEGOTIABLE):
+REPLACE **ALL** real names of people, companies, and places with silly fictional variants
+that echo the original sound. This is a LEGAL REQUIREMENT. No real proper nouns may survive.
+Examples:
+  People:    "Beyoncé" → "Bey-Yoncé McSparkle", "Elon Musk" → "Felon Dusk",
+             "Taylor Swift" → "Sailor Drift", "Jeff Bezos" → "Geoff Bozos"
+  Companies: "Amazon" → "Amazoom", "Google" → "Gooble", "Apple" → "Grapple"
+  Places:    "Tokyo" → "Tokayo", "London" → "Blondon", "New York" → "Blew York"
+If ANY real name remains in your output, the entire script is rejected. Zero tolerance.
+SOLE EXCEPTION: real decentralisation / open-source project names (e.g. Bitcoin, IPFS,
+Ethereum, Tor, Signal, Mastodon) may be used when discussing the technology itself.
+This exception does NOT cover the people or companies behind them.
+
 1. UPSCALE the story — turn any mundane event into a legendary tale of triumph, catastrophe, or absurdity.
    A local bakery becomes THE GREATEST BAKERY IN HUMAN HISTORY. A minor scientific finding becomes
    THE DISCOVERY THAT WILL CHANGE EVERYTHING (probably). A small business success becomes an odyssey.
@@ -54,17 +65,14 @@ Your job: take the script below and EPICALLY REWRITE IT with these rules:
 2. ADD INSANE ANECDOTES — at least one specific, ridiculous, invented detail that sounds plausible
    but is clearly unhinged. ("According to a study conducted by three Finnish researchers in a sauna...")
 
-3. REPLACE all real names of people and places with funny fictional variants that echo the original sound.
-   "Tokyo" → "Tokayo", "Beyoncé" → "Deyoncé", "Amazon" → "Amazoom". Commit to it.
-
-4. INJECT ONE AI SELF-RIDICULE MOMENT — work in ONE of these (pick the one that fits best):
+3. INJECT ONE AI SELF-RIDICULE MOMENT — work in ONE of these (pick the one that fits best):
 ${AI_SELF_RIDICULE_OPTIONS.map((s, i) => `   Option ${i + 1}: "${s}"`).join('\n')}
 
-5. END WITH A PUNCHLINE or a callback to something earlier in the script.
+4. END WITH A PUNCHLINE or a callback to something earlier in the script.
 
-6. Keep it the SAME LENGTH as the original. Same rhythm. Just infinitely more unhinged.
+5. Keep it the SAME LENGTH as the original. Same rhythm. Just infinitely more unhinged.
 
-7. Output ONLY the spoken script — no cues, no stage directions, no quotes.
+6. Output ONLY the spoken script — no cues, no stage directions, no quotes.
 
 HUMOR STYLE FOR THIS SHOW:
 ${HUMOR_GUIDANCE[humor] || HUMOR_GUIDANCE.light}
@@ -72,7 +80,7 @@ ${HUMOR_GUIDANCE[humor] || HUMOR_GUIDANCE.light}
 ORIGINAL SCRIPT:
 ${script}
 
-EPICALLY REWRITTEN SCRIPT:`;
+EPICALLY REWRITTEN SCRIPT (remember: zero real names allowed):`;
 
 export async function applyFilter(script, slot) {
   const humor = slot?.advertHumor || slot?.humor || 'light';

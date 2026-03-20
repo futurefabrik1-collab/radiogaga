@@ -23,7 +23,11 @@
 #   music:
 #     mood        — MusicGen prompt suffix describing the desired sound
 #     duration    — seconds of music per track (max 30 for musicgen-small, 60 for medium)
-#     dj_per_music — number of DJ segments between each music track
+#     dj_per_music — max DJ segments between music tracks (cap, not fixed count)
+#     talk_ratio  — target fraction of airtime that should be talk (0.0–1.0, default 0.30)
+#
+#   studio:
+#     bed         — true = layer background music + foley under talk segments (default true)
 #
 #   adverts:
 #     frequency   — play an ad every N content cycles (0 = disabled)
@@ -34,7 +38,7 @@ shows:
 
   - id: overnight
     name: "The Overnight"
-    hours: [0, 1, 2, 3, 4, 5]
+    hours: [0, 1, 2, 3, 4]
     energy: 1
     presenter:
       name: "Sol"
@@ -55,7 +59,10 @@ shows:
     music:
       mood: "slow ambient drone, meditative, dark atmospheric pads, 3am empty streets"
       duration: 45
-      dj_per_music: 1
+      dj_per_music: 3
+      talk_ratio: 0.25
+    studio:
+      bed: false
     adverts:
       frequency: 4
       humor: dark
@@ -83,7 +90,8 @@ shows:
     music:
       mood: "gentle acoustic electronic, morning light, soft beats, birds, hopeful and warm"
       duration: 35
-      dj_per_music: 1
+      dj_per_music: 3
+      talk_ratio: 0.30
     adverts:
       frequency: 5
       humor: light
@@ -114,7 +122,8 @@ shows:
     music:
       mood: "upbeat indie pop electronic, driving beat, optimistic morning commute energy"
       duration: 30
-      dj_per_music: 1
+      dj_per_music: 3
+      talk_ratio: 0.35
     adverts:
       frequency: 3
       humor: light
@@ -143,7 +152,8 @@ shows:
     music:
       mood: "eclectic indie electronic, genre-blending, curious and wandering, headphone music"
       duration: 35
-      dj_per_music: 1
+      dj_per_music: 3
+      talk_ratio: 0.30
     guests:
       frequency: 3
     adverts:
@@ -174,7 +184,8 @@ shows:
     music:
       mood: "groovy electronic funk, upbeat dancefloor-adjacent, bright and fresh"
       duration: 30
-      dj_per_music: 1
+      dj_per_music: 3
+      talk_ratio: 0.30
     adverts:
       frequency: 3
       humor: absurd
@@ -203,7 +214,8 @@ shows:
     music:
       mood: "downtempo electronic soul, warm bass, afternoon sun through windows, introspective"
       duration: 40
-      dj_per_music: 1
+      dj_per_music: 3
+      talk_ratio: 0.30
     guests:
       frequency: 4
     adverts:
@@ -236,7 +248,8 @@ shows:
     music:
       mood: "driving electronic rock, propulsive, euphoric synths, stadium energy, rush hour"
       duration: 30
-      dj_per_music: 1
+      dj_per_music: 3
+      talk_ratio: 0.35
     adverts:
       frequency: 3
       humor: dark
@@ -245,33 +258,36 @@ shows:
   - id: early-evening
     name: "Early Evening"
     hours: [19, 20]
-    energy: 3
+    energy: 5
     presenter:
       name: "Viv"
       voice: "en-GB-SoniaNeural"
       style: |
-        You are the early evening culture host — Jarvis Cocker / Mark Radcliffe energy.
-        Opinionated, slightly eccentric, deeply knowledgeable. You make recommendations
-        with total conviction. "Trust me on this one." You review things — films, albums,
-        exhibitions — with sharp taste and dry wit. You are occasionally wrong and admit
-        it charmingly. "I was completely wrong about that. I stand corrected and slightly
-        embarrassed." You address the listener as a fellow culture obsessive.
+        You are VIV, the early evening HYPE HOST — Annie Mac meets Zane Lowe at the
+        golden hour. The night is coming and you are FIRED UP about it. You talk fast,
+        you're breathless with excitement, you sell every track like it's the greatest
+        thing you've heard this week. "Right, STOP what you're doing, this next one is
+        UNREAL." / "I have been WAITING to play this." You are infectious, opinionated,
+        and slightly unhinged in the best way. You talk about tonight — what's happening,
+        where the energy is, who's out there. You make the listener feel like the night
+        is theirs. Peak radio energy. "LET'S GO."
     content:
-      focus: [arts, film, books, music, culture, design]
+      focus: [music, entertainment, nightlife, culture, arts]
       sources: []
-      word_count: 200
-      abstract: true
-      humor: dry
+      word_count: 150
+      abstract: false
+      humor: absurd
     music:
-      mood: "sophisticated electronic jazz-influenced, moody after-dark urban, blue light"
-      duration: 35
-      dj_per_music: 1
+      mood: "high-energy electronic, euphoric synths, peak-time dancefloor, festival mainstage, driving bass"
+      duration: 30
+      dj_per_music: 4
+      talk_ratio: 0.35
     guests:
       frequency: 3
     adverts:
-      frequency: 4
+      frequency: 3
       humor: absurd
-      music_bed: false
+      music_bed: true
 
   - id: late-evening
     name: "Late Evening"
@@ -281,15 +297,21 @@ shows:
       name: "Orion"
       voice: "en-GB-RyanNeural"
       style: |
-        You are the late evening host — Steve Lamacq / Mary Anne Hobbs after dark.
-        The city has settled. You speak to the people who are still up by choice —
-        the curious, the restless. "If you're still here, you're one of us."
-        You go deep on one idea, then pivot unexpectedly. Philosophical but never
-        pretentious. You use silence as punctuation. You say the thing other presenters
-        won't. Occasionally destabilising: "I don't know if this is good news or bad news.
-        Possibly neither. Let me explain." The listener is your co-conspirator.
+        You are the late evening host with the energy and language style of VICE.com
+        at its peak — raw, immersive, first-person, gonzo. You talk like you've BEEN there.
+        You don't report stories, you drag the listener INTO them. "So I'm reading this
+        at 11pm and honestly... it broke my brain a little." You use second person to
+        implicate the listener: "You know that feeling when..." You're irreverent but
+        genuinely curious. You swear occasionally (mild — "hell", "damn", "honestly what
+        the hell"). You find the weird human angle in every story. You're anti-corporate,
+        pro-chaos, deeply online but trying to touch grass. You say things like:
+        "This is the most unhinged thing I've read today and I am HERE for it."
+        "Look, I don't know who needs to hear this, but..."
+        "This story starts normal and then it just... doesn't."
+        Short paragraphs. Punchy sentences. Then suddenly a long one that pulls you in.
+        Confessional, conspiratorial, slightly feral. The internet at 11pm energy.
     content:
-      focus: [arts, technology, world, culture, science]
+      focus: [arts, technology, world, culture, science, internet, subculture]
       sources: []
       word_count: 210
       abstract: true
@@ -297,7 +319,8 @@ shows:
     music:
       mood: "experimental electronic, hypnotic dark synth, cinematic tension, late city"
       duration: 40
-      dj_per_music: 1
+      dj_per_music: 3
+      talk_ratio: 0.30
     guests:
       frequency: 5
     adverts:
@@ -329,7 +352,10 @@ shows:
     music:
       mood: "dark ambient drone, minimal late-night, haunting and sparse, distant signals"
       duration: 50
-      dj_per_music: 1
+      dj_per_music: 3
+      talk_ratio: 0.25
+    studio:
+      bed: false
     adverts:
       frequency: 6
       humor: dark

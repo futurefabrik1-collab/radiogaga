@@ -1,10 +1,8 @@
 // Hourly news bulletin — satirical, ambiguity-filtered, with one bizarre invented story.
 // Four rotating anchors with distinct styles. Runs once per hour.
 
-import { Ollama } from 'ollama';
+import { ollama } from './ollama.js';
 import { textToMp3 } from './tts.js';
-
-const ollama = new Ollama({ host: 'http://localhost:11434' });
 
 // Four news anchors — rotate through them each hour
 const ANCHORS = [
@@ -43,25 +41,33 @@ const NEWS_PROMPT = (headlines, anchorStyle, hour) => `You are writing a satiric
 ANCHOR STYLE: ${anchorStyle}
 TIME: The ${hour}:00 news.
 
-RULES — read carefully:
-1. RENAME all real people with silly-but-close fictional names that echo the original sound.
-   Examples: "Donald Trump" → "Ronold Grump", "Keir Starmer" → "Keer Blartner",
-   "Elon Musk" → "Felon Dusk", "Taylor Swift" → "Sailor Drift"
-2. RENAME all real places similarly.
-   Examples: "Washington" → "Splashington", "London" → "Blondon", "France" → "Prance"
-3. REWRITE 2 real headlines as SATIRE — exaggerate, expose the absurdity, treat the ridiculous as normal.
-4. INVENT one completely BIZARRE story that has no basis in reality. Present it with total deadpan gravity.
+ANONYMITY RULE (MANDATORY, NON-NEGOTIABLE — applies to EVERY proper noun):
+RENAME **ALL** real people with silly fictional names that echo the original sound.
+  Examples: "Donald Trump" → "Ronold Grump", "Keir Starmer" → "Keer Blartner",
+  "Elon Musk" → "Felon Dusk", "Taylor Swift" → "Sailor Drift"
+RENAME **ALL** real places, companies, and organisations similarly.
+  Examples: "Washington" → "Splashington", "London" → "Blondon", "France" → "Prance",
+  "Google" → "Gooble", "NASA" → "SNASA", "Amazon" → "Amazoom"
+If ANY real proper noun survives in your output, the bulletin is rejected. Zero tolerance.
+SOLE EXCEPTION: real decentralisation / open-source project names (e.g. Bitcoin, IPFS,
+Ethereum, Tor, Signal, Mastodon) may be used when discussing the technology itself.
+This does NOT cover the people or companies behind them.
+
+OTHER RULES:
+1. REWRITE 2 real headlines as SATIRE — exaggerate, expose the absurdity, treat the ridiculous as normal.
+   Some headlines may already be satirical (from comedy sources) — riff on them, don't rewrite verbatim.
+2. INVENT one completely BIZARRE story that has no basis in reality. Present it with total deadpan gravity.
    Examples: "Scientists confirm Tuesday is getting longer", "Parliament votes to replace gravity",
    "A local man has been found to be 40% cheese"
-5. Open with: "This is the [hour]:00 news on radioGAGA. I'm [anchor name]."
-6. End with: "More throughout the day. You're listening to radioGAGA."
-7. Total length: 130–160 words. Deadpan throughout. No winking at the audience.
-8. Output ONLY the spoken bulletin. No stage directions.
+3. Open with: "This is the [hour]:00 news on radioGAGA. I'm [anchor name]."
+4. End with: "More throughout the day. You're listening to radioGAGA."
+5. Total length: 130–160 words. Deadpan throughout. No winking at the audience.
+6. Output ONLY the spoken bulletin. No stage directions.
 
-REAL HEADLINES TO SATIRISE (use 2 of these):
+HEADLINES TO WORK WITH (use 2 — some may be satirical already, riff freely):
 ${headlines}
 
-Write the bulletin now:`;
+Write the bulletin now (remember: ZERO real names):`;
 
 export async function generateNewsBulletin(headlines) {
   const anchor = getAnchor();

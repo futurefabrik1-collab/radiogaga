@@ -108,6 +108,20 @@ export default function Index() {
         <TelegramPanel />
       </div>
 
+      {/* Ko-fi support button — bottom-left */}
+      <a
+        href="https://ko-fi.com/radiogaga"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="fixed bottom-24 left-4 z-50 flex items-center gap-2 px-4 py-2 rounded-full bg-foreground/10 backdrop-blur-sm border border-foreground/10 text-foreground/70 hover:text-foreground hover:bg-foreground/20 transition-all duration-300 pointer-events-auto"
+        style={{ opacity: loaded ? 0.8 : 0, transition: "opacity 1s ease 1s" }}
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M18 8h1a4 4 0 010 8h-1" /><path d="M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8z" /><line x1="6" y1="1" x2="6" y2="4" /><line x1="10" y1="1" x2="10" y2="4" /><line x1="14" y1="1" x2="14" y2="4" />
+        </svg>
+        <span className="text-xs font-mono tracking-wider uppercase">Support</span>
+      </a>
+
       <RadioPlayer />
     </div>
   );

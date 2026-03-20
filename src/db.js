@@ -15,7 +15,14 @@ db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
 // Add location column to existing DBs (no-op if already present)
-try { db.exec(`ALTER TABLE listeners ADD COLUMN location TEXT`); } catch {}
+try {
+  db.exec(`ALTER TABLE listeners ADD COLUMN location TEXT`);
+} catch (err) {
+  // Expected: "duplicate column name" on subsequent runs — only warn on unexpected errors
+  if (!err.message.includes('duplicate column')) {
+    console.warn('[db] ALTER TABLE listeners failed:', err.message);
+  }
+}
 
 // ── Schema ─────────────────────────────────────────────────────────────────
 

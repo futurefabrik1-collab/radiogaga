@@ -45,6 +45,10 @@ function loadSchedule() {
       musicMood:    s.music?.mood || 'ambient electronic',
       musicDuration: s.music?.duration || 30,
       djPerMusic:   s.music?.dj_per_music || 2,
+      talkRatio:    s.music?.talk_ratio ?? 0.30,
+
+      // studio atmosphere
+      studioBed:    s.studio?.bed ?? true,
 
       // adverts
       advertFrequency: s.adverts?.frequency ?? 4,
@@ -98,6 +102,7 @@ export function logSchedule() {
     const start = String(s.hours[0]).padStart(2, '0') + ':00';
     const end   = String(s.hours[s.hours.length - 1] + 1).padStart(2, '0') + ':00';
     const flags = [
+      `talk:${Math.round(s.talkRatio * 100)}%`,
       s.abstract ? 'abstract' : '',
       `humor:${s.advertHumor}`,
       s.advertFrequency > 0 ? `ads/~${s.advertFrequency}` : 'no-ads',

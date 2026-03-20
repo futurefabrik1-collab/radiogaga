@@ -7,18 +7,28 @@ import { catalogStats } from './content/advertCatalog.js';
 import { archivePoolSize } from './content/archiveMusic.js';
 import { SCHEDULE, setSlotOverride, clearSlotOverride, getCurrentSlot } from './schedule.js';
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
+const API_TOKEN = process.env.API_TOKEN;
+const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
 
 const app = express();
 app.use(express.json());
 
 app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Origin', CORS_ORIGIN);
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });
+
+// Auth middleware for admin/mutation endpoints
+function requireAuth(req, res, next) {
+  if (!API_TOKEN) return next(); // auth disabled if no token configured
+  const header = req.headers.authorization;
+  if (header === `Bearer ${API_TOKEN}`) return next();
+  return res.status(401).json({ error: 'Unauthorized' });
+}
 
 // Current playing info
 app.get('/api/now-playing', (req, res) => {
@@ -44,22 +54,23 @@ app.get('/api/shows', (req, res) => {
   })));
 });
 
+// Return to scheduled show — must be registered before the :id param route
+app.post('/api/skip/reset', requireAuth, (req, res) => {
+  clearSlotOverride();
+  queue.clear();
+  res.json({ ok: true });
+});
+
 // Skip to a specific show — clears queue so new content generates immediately
-app.post('/api/skip/:id', (req, res) => {
+app.post('/api/skip/:id', requireAuth, (req, res) => {
   const { id } = req.params;
+  if (id.length > 40) return res.status(400).json({ error: 'Invalid show ID' });
   const ok = setSlotOverride(id, parseInt(req.body?.duration) || 60);
   if (!ok) return res.status(404).json({ error: 'Show not found' });
   queue.clear();
   const slot = SCHEDULE.find(s => s.id === id);
   console.log(`[server] Skip → ${slot.name}`);
   res.json({ ok: true, show: slot.name });
-});
-
-// Return to scheduled show
-app.post('/api/skip/reset', (req, res) => {
-  clearSlotOverride();
-  queue.clear();
-  res.json({ ok: true });
 });
 
 // Station stats

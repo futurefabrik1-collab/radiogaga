@@ -4,10 +4,11 @@
 // Catalog lives at tmp/adverts/ as individual MP3s + a catalog.json index.
 // The worker keeps CATALOG_TARGET adverts ready across all humor styles.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'fs';
+import { existsSync, mkdirSync } from 'fs';
+import { readFile, writeFile } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { generateAdvert } from './advert.js';
+import { generateAdvert, generateDecentAdvert } from './advert.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..', '..');
@@ -19,6 +20,8 @@ const ARCHIVE_INDEX_PATH = join(ARCHIVE_DIR, 'archive.json');
 const CATALOG_TARGET = 200;    // total adverts to build up over time
 const REPLENISH_INTERVAL = 60000; // check every 60s
 const HUMOR_STYLES = ['dark', 'light', 'dry', 'absurd'];
+// Every 4th advert is a factual decentralisation tech spot
+const DECENT_EVERY_N = 4;
 const RECENT_AVOID_COUNT = 20; // don't replay the last N adverts played
 
 mkdirSync(CATALOG_DIR, { recursive: true });
@@ -29,20 +32,37 @@ let catalog = [];
 let recentlyPlayed = []; // ring buffer of recently played paths
 let generating = false;
 
-function loadIndex() {
+async function loadIndex() {
   try {
     if (existsSync(INDEX_PATH)) {
-      const raw = JSON.parse(readFileSync(INDEX_PATH, 'utf8'));
+      const raw = JSON.parse(await readFile(INDEX_PATH, 'utf8'));
       // Drop entries whose file no longer exists
       catalog = raw.filter(entry => existsSync(entry.path));
     }
-  } catch {
+  } catch (err) {
+    console.warn('[catalog] Failed to load index:', err.message);
     catalog = [];
   }
 }
 
+// Debounced save — coalesces rapid writes into one I/O
+let saveTimer = null;
 function saveIndex() {
-  writeFileSync(INDEX_PATH, JSON.stringify(catalog, null, 2));
+  if (saveTimer) return; // already scheduled
+  saveTimer = setTimeout(async () => {
+    saveTimer = null;
+    try {
+      await writeFile(INDEX_PATH, JSON.stringify(catalog, null, 2));
+    } catch (err) {
+      console.warn('[catalog] Failed to save index:', err.message);
+    }
+  }, 500);
+}
+
+// Force immediate save (for shutdown)
+async function saveIndexNow() {
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+  await writeFile(INDEX_PATH, JSON.stringify(catalog, null, 2));
 }
 
 // Pick the best advert for the current show context.
@@ -84,7 +104,7 @@ export function catalogSize() {
 
 export function catalogStats() {
   const unplayed = catalog.filter(e => !e.lastPlayedAt).length;
-  const byHumor = HUMOR_STYLES.reduce((acc, h) => {
+  const byHumor = [...HUMOR_STYLES, 'decent'].reduce((acc, h) => {
     acc[h] = catalog.filter(e => e.humor === h).length;
     return acc;
   }, {});
@@ -97,7 +117,8 @@ async function fillCatalog() {
 
   try {
     while (catalog.length < CATALOG_TARGET) {
-      const humor = HUMOR_STYLES[catalog.length % HUMOR_STYLES.length];
+      const isDecent = (catalog.length % DECENT_EVERY_N) === 0;
+      const humor = isDecent ? 'decent' : HUMOR_STYLES[(catalog.length % (HUMOR_STYLES.length * DECENT_EVERY_N)) % HUMOR_STYLES.length];
       const fakeSlot = {
         voice: 'en-GB-RyanNeural',
         advertHumor: humor,
@@ -107,7 +128,9 @@ async function fillCatalog() {
 
       try {
         console.log(`[catalog] Generating ${humor} advert (${catalog.length + 1}/${CATALOG_TARGET})...`);
-        const advert = await generateAdvert(fakeSlot);
+        const advert = isDecent
+          ? await generateDecentAdvert(fakeSlot)
+          : await generateAdvert(fakeSlot);
 
         // Move the file into the catalog dir if it isn't already there
         const entry = {
@@ -132,16 +155,18 @@ async function fillCatalog() {
 }
 
 // Move an advert to the archive (keeps the file, moves the record).
-function archiveEntry(entry) {
+async function archiveEntry(entry) {
   let archive = [];
   try {
     if (existsSync(ARCHIVE_INDEX_PATH)) {
-      archive = JSON.parse(readFileSync(ARCHIVE_INDEX_PATH, 'utf8'));
+      archive = JSON.parse(await readFile(ARCHIVE_INDEX_PATH, 'utf8'));
     }
-  } catch {}
+  } catch (err) {
+    console.warn('[catalog] Failed to load archive index:', err.message);
+  }
 
   archive.push({ ...entry, archivedAt: new Date().toISOString() });
-  writeFileSync(ARCHIVE_INDEX_PATH, JSON.stringify(archive, null, 2));
+  await writeFile(ARCHIVE_INDEX_PATH, JSON.stringify(archive, null, 2));
 }
 
 // Remove the oldest advert from active catalog, archive it, generate a fresh replacement.
@@ -157,11 +182,12 @@ async function rotateCatalog() {
   console.log(`[catalog] Archived: ${oldest.title} — generating replacement`);
   saveIndex();
 
-  // Generate one fresh advert
-  const humor = HUMOR_STYLES[Math.floor(Math.random() * HUMOR_STYLES.length)];
+  // Generate one fresh advert — respect the decent-spot cadence
+  const isDecent = (catalog.length % DECENT_EVERY_N) === 0;
+  const humor = isDecent ? 'decent' : HUMOR_STYLES[Math.floor(Math.random() * HUMOR_STYLES.length)];
   const fakeSlot = { voice: 'en-GB-RyanNeural', advertHumor: humor, advertMusicBed: false, id: 'catalog' };
   try {
-    const advert = await generateAdvert(fakeSlot);
+    const advert = isDecent ? await generateDecentAdvert(fakeSlot) : await generateAdvert(fakeSlot);
     catalog.push({ path: advert.path, title: advert.title, humor: advert.humor, script: advert.script, createdAt: advert.createdAt });
     saveIndex();
     console.log(`[catalog] Replacement ready: ${advert.title}`);
@@ -172,8 +198,8 @@ async function rotateCatalog() {
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
-export function startCatalogWorker() {
-  loadIndex();
+export async function startCatalogWorker() {
+  await loadIndex();
   const stats = catalogStats();
   console.log(`[catalog] Loaded ${stats.total} adverts — unplayed: ${stats.unplayed} | dark:${stats.byHumor.dark} light:${stats.byHumor.light} dry:${stats.byHumor.dry} absurd:${stats.byHumor.absurd}`);
 

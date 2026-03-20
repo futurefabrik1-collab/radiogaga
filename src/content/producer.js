@@ -1,7 +1,12 @@
 // Content producer — orchestrates the full content loop with schedule awareness.
 //
-// Sequence per slot:  [DJ × djPerMusic] → [music] → repeat
-//                     Every advertFrequency cycles, insert an advert after the music.
+// Ratio-aware scheduling:
+//   A rolling 30-minute window tracks talk vs music time.  The producer
+//   inserts DJ/banter segments when talk is below the show's talk_ratio
+//   target (default 30%), and switches to music when it's at or above.
+//   dj_per_music acts as a max-cap on consecutive DJ segments.
+//   Every music track gets a mandatory spoken intro (with retry + fallback).
+//   Every advertFrequency cycles, an advert follows the music.
 // Timing:             driven by schedule slot settings in schedule.yaml
 // Lag compensation:   tracks rolling average generation times, buffers further
 //                     ahead when generation is slow.
@@ -17,10 +22,11 @@ import { getNextSongOverride, markOverrideUsed, getRecentSuggestions } from '../
 import { getSubscribers } from '../bot/index.js';
 import { launchCompetition } from '../bot/competitions.js';
 import { startCatalogWorker, getFromCatalog, catalogSize } from './advertCatalog.js';
-import { startArchiveWorker, archivePoolSize } from './archiveMusic.js';
+import { startArchiveWorker, getArchiveTrack, archivePoolSize } from './archiveMusic.js';
 import { generateTrackIntro, generateTrackOutro } from './trackIntro.js';
 import { generateGuestSegment } from './guest.js';
 import { generateNewsBulletin } from './news.js';
+import { initFoleyPool, startBedWorker } from './studioFx.js';
 
 const POLL_INTERVAL_MS = 4000;
 const HEADLINE_TTL_MS = 15 * 60 * 1000;
@@ -37,6 +43,40 @@ const lagTracker = {
     const arr = this[type];
     if (!arr.length) return type === 'music' ? 240000 : 30000;
     return arr.reduce((a, b) => a + b, 0) / arr.length;
+  },
+};
+
+// Rolling talk-vs-music time tracker — decays over a sliding window so recent
+// content weighs more than ancient history.  Used by the producer to hit the
+// per-show talk_ratio target.
+const RATIO_WINDOW_MS = 30 * 60 * 1000; // 30-minute sliding window
+const ratioTracker = {
+  entries: [],  // { type: 'talk'|'music', seconds, ts }
+
+  add(type, seconds) {
+    this.entries.push({ type, seconds, ts: Date.now() });
+    this._prune();
+  },
+
+  _prune() {
+    const cutoff = Date.now() - RATIO_WINDOW_MS;
+    this.entries = this.entries.filter(e => e.ts >= cutoff);
+  },
+
+  talkRatio() {
+    this._prune();
+    if (!this.entries.length) return 0;
+    let talk = 0, total = 0;
+    for (const e of this.entries) {
+      total += e.seconds;
+      if (e.type === 'talk') talk += e.seconds;
+    }
+    return total > 0 ? talk / total : 0;
+  },
+
+  // Returns true when talk is below the target ratio
+  needsMoreTalk(targetRatio) {
+    return this.talkRatio() < targetRatio;
   },
 };
 
@@ -60,7 +100,7 @@ let lastHeadlineFetch = 0;
 let djSegmentCount = 0;   // DJ segments since last music track
 let cycleCount = 0;       // full DJ+music cycles since last advert
 let lastSlotId = null;
-let lastMusicMood = null; // remembered for track outro
+let lastTrackInfo = null; // { title, creator, mood } — for back-announce after track plays
 let lastNewsHour = -1;   // prevent duplicate news per hour
 const COMPETITION_EVERY_N_CYCLES = 5;
 
@@ -87,9 +127,24 @@ async function produceDJSegment(slot) {
   const result = await generateDJSegment(current, slotWithSuggestions);
   const { script, title, headlines: used } = result;
 
-  // Dialogue shows return a pre-rendered path; monologue shows need TTS
-  const path = result.path ?? (await textToMp3(script, slot.voice)).path;
+  // Dialogue shows return a pre-rendered path (with studio bed already applied);
+  // monologue shows need TTS + optional studio bed mixing.
+  let path = result.path;
+  if (!path) {
+    path = (await textToMp3(script, slot.voice, { energy: slot.energy })).path;
+    if (slot.studioBed) {
+      const { mixStudioBed } = await import('./studioFx.js');
+      const wordCount = script ? script.split(/\s+/).length : 150;
+      path = await mixStudioBed(path, {
+        durationS: Math.round(wordCount / 2.5),
+        energy: slot.energy,
+      });
+    }
+  }
   lagTracker.add('dj', Date.now() - t0);
+
+  const talkSeconds = script ? script.split(/\s+/).length / 2.5 : 60;
+  ratioTracker.add('talk', talkSeconds);
 
   queue.push({
     path, type: 'dj', title, script,
@@ -116,37 +171,72 @@ async function produceMusicSegment(slot) {
 
   const mood = overrideSlot.musicMood;
 
-  // Track outro for previous track (if we have one)
-  if (lastMusicMood) {
+  // Back-announce for previous track (if we have one) — queued before the new intro
+  if (lastTrackInfo) {
     try {
-      const outro = await generateTrackOutro(slot, lastMusicMood);
+      const outro = await generateTrackOutro(slot, lastTrackInfo);
+      const outroWords = outro.script ? outro.script.split(/\s+/).length : 30;
+      ratioTracker.add('talk', outroWords / 2.5);
       queue.push({ ...outro, createdAt: new Date().toISOString() });
     } catch (err) {
       console.warn('[producer] Track outro failed:', err.message);
     }
   }
 
-  // Track intro for this track
-  try {
-    const intro = await generateTrackIntro({ ...slot, musicMood: mood });
-    queue.push({ ...intro, createdAt: new Date().toISOString() });
-  } catch (err) {
-    console.warn('[producer] Track intro failed:', err.message);
+  // Pick the track first so the intro can name it
+  const archiveTrack = archivePoolSize() > 5 ? getArchiveTrack() : null;
+
+  let trackInfo;
+  if (archiveTrack) {
+    trackInfo = { title: archiveTrack.title, creator: archiveTrack.creator, mood };
+  } else {
+    trackInfo = { title: `AI Music — ${mood.split(',')[0]}`, creator: 'radioGAGA AI', mood };
   }
 
-  // Prefer archive tracks (Suno/Udio quality) over local MusicGen.
-  // Only fall back to MusicGen when the archive pool is running low.
-  const archiveTrack = archivePoolSize() > 5 ? getArchiveTrack() : null;
+  // Track intro is MANDATORY — every track must be introduced.
+  // Retry once on failure; if it still fails, generate a minimal fallback intro.
+  let introQueued = false;
+  for (let attempt = 0; attempt < 2 && !introQueued; attempt++) {
+    try {
+      const intro = await generateTrackIntro({ ...slot, musicMood: mood }, trackInfo);
+      const introWords = intro.script ? intro.script.split(/\s+/).length : 30;
+      ratioTracker.add('talk', introWords / 2.5);
+      queue.push({ ...intro, createdAt: new Date().toISOString() });
+      introQueued = true;
+    } catch (err) {
+      console.warn(`[producer] Track intro attempt ${attempt + 1} failed:`, err.message);
+    }
+  }
+  if (!introQueued) {
+    // Minimal fallback — at least say something before the track
+    const fallbackText = trackInfo.title.startsWith('AI Music')
+      ? `Here's something fresh for you on radioGAGA.`
+      : `Coming up now, ${trackInfo.title} by ${trackInfo.creator}.`;
+    try {
+      const { path } = await textToMp3(fallbackText, slot.voice, { energy: slot.energy });
+      ratioTracker.add('talk', fallbackText.split(/\s+/).length / 2.5);
+      queue.push({
+        path, type: 'dj',
+        title: `Fallback intro — ${trackInfo.title}`,
+        slot: slot.id,
+        createdAt: new Date().toISOString(),
+      });
+      console.log('[producer] Fallback intro queued');
+    } catch (err) {
+      console.error('[producer] Even fallback intro failed:', err.message);
+    }
+  }
 
   if (archiveTrack) {
     console.log(`[producer] Archive track: ${archiveTrack.title}`);
+    ratioTracker.add('music', archiveTrack.duration || slot.musicDuration);
     queue.push({
       ...archiveTrack,
       type: 'music',
       slot: slot.id,
       createdAt: new Date().toISOString(),
     });
-    lastMusicMood = mood;
+    lastTrackInfo = trackInfo;
     lagTracker.add('music', Date.now() - t0);
   } else {
     // Archive pool low or empty — generate locally with MusicGen
@@ -154,11 +244,12 @@ async function produceMusicSegment(slot) {
     try {
       const segment = await generateMusic({ slot: overrideSlot, duration: slot.musicDuration });
       lagTracker.add('music', Date.now() - t0);
+      ratioTracker.add('music', segment.duration || slot.musicDuration);
       queue.push({ ...segment, slot: slot.id, createdAt: new Date().toISOString() });
-      lastMusicMood = mood;
+      lastTrackInfo = trackInfo;
     } catch (err) {
       console.error('[producer] Music generation failed, skipping:', err.message);
-      lastMusicMood = null;
+      lastTrackInfo = null;
     }
   }
 
@@ -209,6 +300,8 @@ async function loop() {
   console.log('[producer] Starting content loop');
   startCatalogWorker();
   startArchiveWorker();
+  await initFoleyPool();
+  startBedWorker();
 
   let slot = getCurrentSlot();
   lastSlotId = slot.id;
@@ -248,9 +341,21 @@ async function loop() {
 
     if (!needsContent()) continue;
 
-    if (djSegmentCount >= slot.djPerMusic) {
+    // Ratio-aware scheduling: use the rolling talk ratio to decide whether
+    // to produce talk or music.  dj_per_music acts as a max-cap on consecutive
+    // DJ segments (prevents runaway talk if generation is fast).
+    //
+    // Rules:
+    //   1. If we've hit the DJ cap → play music (with mandatory intro).
+    //   2. If talk ratio is below the show's target AND we haven't hit the cap → talk.
+    //   3. Otherwise → play music.
+    const currentRatio = ratioTracker.talkRatio();
+    const wantsTalk = ratioTracker.needsMoreTalk(slot.talkRatio)
+                      && djSegmentCount < slot.djPerMusic;
+
+    if (djSegmentCount >= slot.djPerMusic || !wantsTalk) {
       // Time for music
-      console.log(`[producer] ${slot.name}: music (${slot.musicDuration}s)`);
+      console.log(`[producer] ${slot.name}: music (${slot.musicDuration}s) [talk ratio: ${(currentRatio * 100).toFixed(0)}%/${(slot.talkRatio * 100).toFixed(0)}%]`);
       await produceMusicSegment(slot);
 
       // Insert advert after music every advertFrequency cycles
@@ -269,7 +374,7 @@ async function loop() {
         await produceGuestSegment(slot);
         djSegmentCount++; // counts as one DJ slot
       } else {
-        console.log(`[producer] ${slot.name}: DJ ${djSegmentCount + 1}/${slot.djPerMusic}`);
+        console.log(`[producer] ${slot.name}: DJ ${djSegmentCount + 1}/${slot.djPerMusic} [talk ratio: ${(currentRatio * 100).toFixed(0)}%/${(slot.talkRatio * 100).toFixed(0)}%]`);
         await produceDJSegment(slot);
       }
     }

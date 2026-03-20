@@ -2,7 +2,11 @@
   "name": "ai-radio",
   "version": "0.0.1",
   "description": "radioGAGA — AI-powered 24/7 radio station at radiogaga.ai",
+  "license": "UNLICENSED",
   "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
@@ -10,6 +14,15 @@
     "ollama": "ollama serve",
     "frontend": "cd frontend && npm run dev",
     "radio": "concurrently --names icecast,ollama,backend,frontend --prefix-colors cyan,yellow,green,blue \"npm run icecast\" \"npm run ollama\" \"npm run dev\" \"npm run frontend\""
+  },
+  "systemDependencies": {
+    "_comment": "These must be installed on the host system",
+    "ffmpeg": "with libmp3lame — audio processing and streaming",
+    "ffprobe": "audio duration detection (ships with ffmpeg)",
+    "edge-tts": "pip install edge-tts — text-to-speech",
+    "icecast": "brew install icecast / apt install icecast2 — audio streaming server",
+    "ollama": "local LLM server (ollama.ai)",
+    "python3": "with torch, transformers, scipy, numpy — for MusicGen"
   },
   "dependencies": {
     "better-sqlite3": "^12.8.0",

@@ -2,14 +2,31 @@
 // Returns a flat array of { title, description, source } objects.
 
 const FEEDS = [
-  // Niche & weird
+  // ── Satirical & comedy ────────────────────────────────────────────────────
+  { url: 'https://www.theonion.com/rss', source: 'The Onion' },
+  { url: 'https://clickhole.com/feed/', source: 'ClickHole' },
+  { url: 'https://reductress.com/feed/', source: 'Reductress' },
+  { url: 'https://thehardtimes.net/feed/', source: 'The Hard Times' },
+  { url: 'https://hard-drive.net/feed/', source: 'Hard Drive' },
+  { url: 'https://www.mcsweeneys.net/feed/daily', source: "McSweeney's" },
+  { url: 'https://www.thedailymash.co.uk/feed', source: 'The Daily Mash' },
+  { url: 'https://newsbiscuit.com/feed/', source: 'News Biscuit' },
+  { url: 'https://defector.com/rss', source: 'Defector' },
+  { url: 'https://aftermath.site/rss', source: 'Aftermath' },
+  { url: 'https://www.404media.co/rss/', source: '404 Media' },
+  { url: 'https://www.newyorker.com/feed/humor', source: 'New Yorker Humor' },
+  { url: 'https://www.cracked.com/feed', source: 'Cracked' },
+  { url: 'https://www.betootaadvocate.com/feed/', source: 'Betoota Advocate' },
+  { url: 'https://chaser.com.au/feed/', source: 'The Chaser' },
+
+  // ── Niche & weird ─────────────────────────────────────────────────────────
   { url: 'https://www.atlasobscura.com/feeds/latest', source: 'Atlas Obscura' },
   { url: 'https://www.mentalfloss.com/rss/all', source: 'Mental Floss' },
   { url: 'https://www.odditycentral.com/feed', source: 'Oddity Central' },
   { url: 'https://www.thevintagenews.com/feed/', source: 'Vintage News' },
   { url: 'https://www.iflscience.com/rss', source: 'IFL Science' },
 
-  // Obscure international / local
+  // ── Obscure international / local ─────────────────────────────────────────
   { url: 'https://www.thelocal.se/feeds/rss.php', source: 'The Local Sweden' },
   { url: 'https://www.thelocal.fr/feeds/rss.php', source: 'The Local France' },
   { url: 'https://www.thelocal.de/feeds/rss.php', source: 'The Local Germany' },
@@ -19,19 +36,32 @@ const FEEDS = [
   { url: 'https://www.rnz.co.nz/rss/national.xml', source: 'RNZ New Zealand' },
   { url: 'https://www.abc.net.au/news/feed/51120/rss.xml', source: 'ABC Australia' },
 
-  // Tech & AI culture
+  // ── Random local outlets from around the world ────────────────────────────
+  { url: 'https://www.bangkokpost.com/rss/data/most-recent.xml', source: 'Bangkok Post' },
+  { url: 'https://www.irishtimes.com/cmlink/the-irish-times-news-1.1319192', source: 'Irish Times' },
+  { url: 'https://www.timesofisrael.com/feed/', source: 'Times of Israel' },
+  { url: 'https://www.jamaicaobserver.com/feed/', source: 'Jamaica Observer' },
+  { url: 'https://www.scmp.com/rss/91/feed', source: 'South China Morning Post' },
+  { url: 'https://www.iol.co.za/cmlink/1.640', source: 'IOL South Africa' },
+  { url: 'https://balkaninsight.com/feed/', source: 'Balkan Insight' },
+  { url: 'https://www.arabnews.com/rss.xml', source: 'Arab News' },
+  { url: 'https://www.taipeitimes.com/xml/index.rss', source: 'Taipei Times' },
+  { url: 'https://mexiconewsdaily.com/feed/', source: 'Mexico News Daily' },
+  { url: 'https://www.dailystar.co.uk/news/?service=rss', source: 'Daily Star UK' },
+
+  // ── Tech & AI culture ─────────────────────────────────────────────────────
   { url: 'https://feeds.arstechnica.com/arstechnica/technology-lab', source: 'Ars Technica' },
   { url: 'https://www.wired.com/feed/rss', source: 'Wired' },
   { url: 'https://news.ycombinator.com/rss', source: 'Hacker News' },
 
-  // Arts & culture
+  // ── Arts & culture ────────────────────────────────────────────────────────
   { url: 'https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml', source: 'BBC Arts' },
   { url: 'https://www.theguardian.com/music/rss', source: 'Guardian Music' },
   { url: 'https://www.theguardian.com/artanddesign/rss', source: 'Guardian Art' },
   { url: 'https://pitchfork.com/rss/news/', source: 'Pitchfork' },
   { url: 'https://www.theguardian.com/culture/rss', source: 'Guardian Culture' },
 
-  // Science & nature
+  // ── Science & nature ──────────────────────────────────────────────────────
   { url: 'https://www.sciencedaily.com/rss/all.xml', source: 'Science Daily' },
   { url: 'https://www.newscientist.com/feed/home/', source: 'New Scientist' },
 ];

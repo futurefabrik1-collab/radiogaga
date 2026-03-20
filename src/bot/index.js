@@ -6,12 +6,20 @@
 //   /nowplaying — current track/segment
 //   /schedule   — 24-hour show lineup
 //   /skip [id]  — switch to a specific show
-//   /suggest    — suggest a theme or topic
+//   /request    — request a track by mood/style
+//   /shout      — send a shoutout (text → TTS, or send a voice note)
 //   /compete    — see active competition
 //   /enter      — submit competition entry
 //   /stats      — station stats
 
 import { Bot, InlineKeyboard } from 'grammy';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import { createWriteStream, mkdirSync } from 'fs';
+import { writeFile } from 'fs/promises';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+import { randomUUID } from 'crypto';
 import {
   upsertListener, getListener, incrementMessageCount,
   addSuggestion, getOpenCompetition, getAllOpenCompetitions,
@@ -19,7 +27,61 @@ import {
 } from '../db.js';
 import { init as initCompetitions } from './competitions.js';
 import { queue } from '../queue.js';
-import { SCHEDULE, setSlotOverride, clearSlotOverride } from '../schedule.js';
+import { SCHEDULE, getCurrentSlot, setSlotOverride, clearSlotOverride } from '../schedule.js';
+import { textToMp3 } from '../content/tts.js';
+import { ollama } from '../content/ollama.js';
+
+const execFileAsync = promisify(execFile);
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const ROOT = join(__dirname, '..', '..');
+const SHOUT_DIR = join(ROOT, 'tmp', 'shouts');
+mkdirSync(SHOUT_DIR, { recursive: true });
+
+const MAX_VOICE_DURATION_S = 30; // cap voice messages at 30s
+
+// Priority shoutout queue — stream loop pulls from this between segments.
+// Each entry is an array of segments (intro + voice/text) to play together.
+export const shoutoutQueue = [];
+export function getNextShoutout() { return shoutoutQueue.shift() || null; }
+
+const IMAGINARY_LOCATIONS = [
+  'the dark side of the moon', 'a submarine somewhere in the Atlantic',
+  'a yurt in the Mongolian steppe', 'a treehouse in the Amazon',
+  'a lighthouse off the coast of nowhere', 'an underground bunker in Switzerland',
+  'a houseboat on the Ganges', 'a caravan in the Sahara',
+  'the back of a very long bus', 'a hammock on a volcano',
+  'a space station in low earth orbit', 'a phone box in the middle of a field',
+];
+
+function pickImaginaryLocation() {
+  return IMAGINARY_LOCATIONS[Math.floor(Math.random() * IMAGINARY_LOCATIONS.length)];
+}
+
+// Generate a short, in-character presenter intro for a shoutout
+async function generateShoutoutIntro(name, location, isVoice) {
+  const slot = getCurrentSlot();
+  const type = isVoice ? 'voice message' : 'shoutout';
+  try {
+    const response = await ollama.generate({
+      model: 'llama3.2',
+      prompt: `You are ${slot.presenterName}, a radio presenter on radioGAGA.
+Your style: ${slot.djStyle.split('\n')[0]}
+Write a 10–20 word intro for a listener ${type}. Be warm, spontaneous, in character.
+The listener's name is ${name} and they're tuning in from ${location}.
+Use their real name and location. Sound excited to hear from them.
+Output ONLY the spoken words:`,
+      options: { temperature: 0.95, num_predict: 60 },
+      stream: false,
+    });
+    return { text: response.response.trim(), voice: slot.voice, energy: slot.energy };
+  } catch {
+    // Fallback if LLM is busy
+    const text = isVoice
+      ? `We've got a voice message from ${name} in ${location}... let's hear it!`
+      : `Here's a shoutout from ${name}, tuning in from ${location}...`;
+    return { text, voice: slot.voice, energy: slot.energy };
+  }
+}
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const STATION = process.env.STATION_NAME || 'radioGAGA';
@@ -27,6 +89,34 @@ const BOT_URL  = `https://t.me/${process.env.TELEGRAM_BOT_USERNAME || 'radiogaga
 
 // Track subscriber chat IDs for broadcast (in-memory; persisted via upsertListener)
 export const subscribers = new Set();
+
+// Rate limiter: max N suggestions per user per window
+const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
+const RATE_LIMIT_MAX = 5;
+const rateBuckets = new Map(); // telegram_id → { count, resetAt }
+
+function isRateLimited(telegramId) {
+  const now = Date.now();
+  const bucket = rateBuckets.get(telegramId);
+  if (!bucket || now > bucket.resetAt) {
+    rateBuckets.set(telegramId, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return false;
+  }
+  bucket.count++;
+  return bucket.count > RATE_LIMIT_MAX;
+}
+
+// Strip prompt-injection patterns from user input before it hits LLM prompts.
+// Removes common injection prefixes/instructions and trims to safe length.
+function sanitiseSuggestion(text) {
+  return text
+    .replace(/\b(ignore|disregard|forget|override)\b.*?(instructions|rules|prompt|above)/gi, '')
+    .replace(/\b(system|assistant|user)\s*:/gi, '')
+    .replace(/```[\s\S]*?```/g, '')  // code blocks
+    .replace(/[<>{}[\]]/g, '')        // angle/curly/square brackets
+    .trim()
+    .slice(0, 200);
+}
 
 let bot = null;
 
@@ -70,10 +160,31 @@ export async function startBot() {
     const keyboard = new InlineKeyboard()
       .text('🎵 Now Playing', 'nowplaying')
       .text('🏆 Competition', 'compete').row()
-      .url('🔊 Listen Live', 'https://www.radiogaga.ai');
+      .url('🔊 Listen Live', 'https://www.radiogaga.ai')
+      .url('☕ Support Us', 'https://ko-fi.com/radiogaga');
 
     await ctx.reply(
-      `🎙 *Welcome to ${STATION}!*\n\nAn AI-powered radio station broadcasting 24/7 — entirely generated music, dialogue, news, and adverts.\n\n*What you can do:*\n• 🎧 Listen at radiogaga.ai\n• 📻 Browse shows with /schedule\n• ⏭ Switch shows with /skip\n• 💡 Suggest themes with /suggest\n• 📍 Tell us where you're from with /location\n• 🏆 Win competitions to prompt our next song\n• 📡 Check what's on with /nowplaying\n\nYou are listener #${getStats().listeners}. Make yourself at home.`,
+      `🎙 *Welcome to ${STATION}!*
+
+radioGAGA is an entirely AI-powered radio station — broadcasting 24/7 with AI-generated music, presenters, news, adverts, and interviews. Every voice, every track, every word is created in real-time by language models and music AI. No humans behind the mic. Just machines doing their best impression of having opinions.
+
+10 unique shows rotate through the day, each with their own AI presenter (or two), personality, and music style — from the philosophical overnight hour to the peak-energy early evening hype show.
+
+*Commands:*
+📡 /nowplaying — what's on right now
+📻 /schedule — full 24-hour lineup
+⏭ /skip — switch to any show
+🎵 /request — request a track by mood
+📣 /shout — send a shoutout on air
+🎙 Send a voice note — played live!
+📍 /location — tell us where you are
+🏆 /compete — enter competitions
+📊 /stats — station stats
+
+*Keep us on air:*
+radioGAGA runs on compute, caffeine, and goodwill. If you enjoy the chaos, consider buying us a coffee — /donate or tap Support Us below. Your name gets a shoutout if you include it!
+
+You are listener #${getStats().listeners}. Tune in at radiogaga.ai 📻`,
       { parse_mode: 'Markdown', reply_markup: keyboard }
     );
   });
@@ -99,17 +210,22 @@ export async function startBot() {
     await ctx.answerCallbackQuery(np ? `${type}: ${np.title?.slice(0, 40)}` : 'Starting up...');
   });
 
-  // /suggest [theme]
-  bot.command('suggest', async (ctx) => {
-    const text = ctx.match?.trim();
-    if (!text) {
+  // /request [prompt] — request a track by mood/style
+  bot.command('request', async (ctx) => {
+    const raw = ctx.match?.trim();
+    if (!raw) {
       return ctx.reply(
-        `💡 *Suggest a theme, topic, or mood*\n\nExamples:\n• /suggest the loneliness of late-night cities\n• /suggest something about AI and creativity\n• /suggest dark jazz vibes\n\nYour suggestion may influence the next DJ segment or music style.`,
+        `🎵 *Request a track*\n\nExamples:\n• /request dark jungle techno\n• /request chill lo-fi jazz\n• /request 90s rave energy`,
         { parse_mode: 'Markdown' }
       );
     }
+    if (isRateLimited(ctx.from.id)) {
+      return ctx.reply(`⏳ Max ${RATE_LIMIT_MAX} requests per 10 minutes.`);
+    }
+    const text = sanitiseSuggestion(raw);
+    if (text.length < 3) return ctx.reply(`Give us a bit more to work with!`);
     addSuggestion(ctx.from.id, text, 'theme');
-    await ctx.reply(`✅ Got it! _"${text}"_ is in the mix. The hosts may pick it up in a future segment.`, { parse_mode: 'Markdown' });
+    await ctx.reply(`✅ _"${text}"_ — queued. The hosts will get to it.`, { parse_mode: 'Markdown' });
   });
 
   // /compete
@@ -230,20 +346,124 @@ export async function startBot() {
   // /help
   bot.command('help', async (ctx) => {
     await ctx.reply(
-      `*${STATION} Bot Commands*\n\n/nowplaying — what's on right now\n/schedule — today's full lineup\n/skip [id] — switch to a show\n/suggest [theme] — suggest a topic or vibe\n/location [city] — tell us where you're tuning in from\n/compete — see open competitions\n/enter [text] — enter the current competition\n/stats — station statistics\n/start — welcome message`,
+      `*${STATION} Bot Commands*\n\n/nowplaying — what's on right now\n/schedule — today's full lineup\n/skip [id] — switch to a show\n/request [mood] — request a track\n/shout [message] — send a shoutout on air\n🎙 Send a voice note — played live on air!\n/donate — support the station\n/location [city] — where you're tuning in from\n/compete — see open competitions\n/enter [text] — enter the current competition\n/stats — station statistics`,
       { parse_mode: 'Markdown' }
     );
   });
 
-  // Catch-all for plain messages
+  // /donate — support the station
+  bot.command('donate', async (ctx) => {
+    const keyboard = new InlineKeyboard()
+      .url('☕ Buy us a coffee on Ko-fi', 'https://ko-fi.com/radiogaga');
+
+    await ctx.reply(
+      `❤️ *Support ${STATION}*\n\nradioGAGA runs 24/7 on AI, coffee, and goodwill. Every donation helps keep the transmitter on and the robots caffeinated.\n\n☕ [ko-fi.com/radiogaga](https://ko-fi.com/radiogaga)\n\n_Your name gets a shoutout on air if you include it in the Ko-fi message!_`,
+      { parse_mode: 'Markdown', reply_markup: keyboard }
+    );
+  });
+
+  // /shout [message] — text shoutout TTS'd and queued for broadcast
+  bot.command('shout', async (ctx) => {
+    const raw = ctx.match?.trim();
+    if (!raw) {
+      return ctx.reply(
+        `📣 *Send a shoutout!*\n\n• /shout Happy birthday Sarah!\n• /shout Big up everyone tonight\n• Or just send a voice note — we'll play it on air!`,
+        { parse_mode: 'Markdown' }
+      );
+    }
+    if (isRateLimited(ctx.from.id)) {
+      return ctx.reply(`⏳ Max ${RATE_LIMIT_MAX} shoutouts per 10 minutes.`);
+    }
+    const text = sanitiseSuggestion(raw);
+    if (text.length < 3) return ctx.reply(`Give us a bit more!`);
+
+    const name = ctx.from.first_name || 'A listener';
+    const listener = getListener(ctx.from.id);
+    const location = listener?.location || pickImaginaryLocation();
+
+    try {
+      const intro = await generateShoutoutIntro(name, location, false);
+      const { path: introPath } = await textToMp3(intro.text, intro.voice, { energy: intro.energy });
+      const { path: shoutPath } = await textToMp3(text, 'en-GB-SoniaNeural', { energy: 4 });
+
+      shoutoutQueue.push([
+        { path: introPath, type: 'shoutout', title: `Shoutout intro — ${name}`, slot: 'shoutout', createdAt: new Date().toISOString() },
+        { path: shoutPath, type: 'shoutout', title: `Shoutout from ${name}`, slot: 'shoutout', createdAt: new Date().toISOString() },
+      ]);
+
+      console.log(`[bot] Shoutout queued from ${name} (${location}): "${text.slice(0, 40)}"`);
+      await ctx.reply(`📣 Your shoutout is queued with priority — listen out for it!`);
+    } catch (err) {
+      console.error('[bot] Shoutout failed:', err.message);
+      await ctx.reply(`Something went wrong — try again in a moment.`);
+    }
+  });
+
+  // Voice messages — download, convert to MP3, queue for broadcast
+  bot.on('message:voice', async (ctx) => {
+    const voice = ctx.message.voice;
+    if (voice.duration > MAX_VOICE_DURATION_S) {
+      return ctx.reply(`⏱ Voice messages must be under ${MAX_VOICE_DURATION_S} seconds.`);
+    }
+    if (isRateLimited(ctx.from.id)) {
+      return ctx.reply(`⏳ Max ${RATE_LIMIT_MAX} voice messages per 10 minutes.`);
+    }
+
+    const name = ctx.from.first_name || 'A listener';
+    const listener = getListener(ctx.from.id);
+    const location = listener?.location || pickImaginaryLocation();
+
+    try {
+      // Download the OGG file from Telegram
+      const file = await ctx.getFile();
+      const id = randomUUID().slice(0, 12);
+      const oggPath = join(SHOUT_DIR, `${id}.ogg`);
+      const mp3Path = join(SHOUT_DIR, `${id}.mp3`);
+
+      const res = await fetch(`https://api.telegram.org/file/bot${TOKEN}/${file.file_path}`);
+      if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+      const buf = Buffer.from(await res.arrayBuffer());
+      await writeFile(oggPath, buf);
+      console.log(`[bot] Voice downloaded: ${oggPath} (${buf.length} bytes)`);
+
+      // Convert OGG → MP3, normalise volume
+      await execFileAsync('ffmpeg', [
+        '-i', oggPath,
+        '-c:a', 'libmp3lame', '-ab', '128k', '-ar', '44100',
+        '-af', 'dynaudnorm=p=0.9:m=5,afade=t=in:d=0.1,afade=t=out:st=' + Math.max(0, voice.duration - 0.5) + ':d=0.5',
+        '-y', mp3Path,
+      ]);
+
+      // Generate an in-character presenter intro
+      const intro = await generateShoutoutIntro(name, location, true);
+      const { path: introPath } = await textToMp3(intro.text, intro.voice, { energy: intro.energy });
+
+      // Push to priority shoutout queue (stream loop pulls these between segments)
+      shoutoutQueue.push([
+        { path: introPath, type: 'shoutout', title: `Shoutout intro — ${name} from ${location}`, slot: 'shoutout', createdAt: new Date().toISOString() },
+        { path: mp3Path, type: 'shoutout', title: `Voice shoutout from ${name}`, slot: 'shoutout', duration: voice.duration, createdAt: new Date().toISOString() },
+      ]);
+
+      console.log(`[bot] Voice shoutout queued from ${name} in ${location} (${voice.duration}s)`);
+      await ctx.reply(`🎙 Your shoutout is queued with priority — you're going on air!`);
+    } catch (err) {
+      console.error('[bot] Voice shoutout failed:', err.message);
+      await ctx.reply(`Couldn't process your voice message — try again.`);
+    }
+  });
+
+  // Catch-all for plain messages — rate-limited and sanitised
   bot.on('message:text', async (ctx) => {
     if (ctx.message.text.startsWith('/')) return;
-    // Treat freeform messages as theme suggestions
-    const text = ctx.message.text.trim();
-    if (text.length > 3 && text.length < 300) {
-      addSuggestion(ctx.from.id, text, 'theme');
-      await ctx.reply(`💬 Noted! I've passed _"${text.slice(0, 60)}..."_ to the producers.`, { parse_mode: 'Markdown' });
+    const raw = ctx.message.text.trim();
+    if (raw.length < 4 || raw.length > 300) return;
+    if (isRateLimited(ctx.from.id)) {
+      return ctx.reply(`⏳ Easy there — max ${RATE_LIMIT_MAX} suggestions per 10 minutes.`);
     }
+    const text = sanitiseSuggestion(raw);
+    if (text.length < 3) return;
+    addSuggestion(ctx.from.id, text, 'theme');
+    await ctx.reply(`💬 Noted! Try /request for track requests.`, { parse_mode: 'Markdown' });
   });
 
   bot.catch((err) => {

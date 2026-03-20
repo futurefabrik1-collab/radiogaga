@@ -11,28 +11,61 @@ import { spawn, execFile } from 'child_process';
 import { promisify } from 'util';
 import { createReadStream, existsSync, mkdirSync } from 'fs';
 import { unlink, writeFile } from 'fs/promises';
-import { join } from 'path';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { queue } from './queue.js';
 import { getFromCatalog, catalogSize } from './content/advertCatalog.js';
 import { getArchiveTrack, archivePoolSize } from './content/archiveMusic.js';
 import { logBroadcast } from './db.js';
+import { getCurrentSlot } from './schedule.js';
+import { generateTrackIntro, generateTrackOutro } from './content/trackIntro.js';
+import { textToMp3 } from './content/tts.js';
+import { getNextShoutout } from './bot/index.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const ROOT = join(__dirname, '..');
 
 const execFileAsync = promisify(execFile);
 
 const ICECAST = {
-  host: 'localhost',
-  port: 8000,
+  host: process.env.ICECAST_HOST || 'localhost',
+  port: parseInt(process.env.ICECAST_PORT) || 8000,
   mount: '/stream',
-  password: 'radiogaga_source',
+  password: process.env.ICECAST_SOURCE_PASSWORD || 'radiogaga_source',
 };
 
 const ICECAST_URL = `icecast://source:${ICECAST.password}@${ICECAST.host}:${ICECAST.port}${ICECAST.mount}`;
-const TMP_DIR = join(process.cwd(), 'tmp');
+const TMP_DIR = join(ROOT, 'tmp');
 const SILENCE_PATH = join(TMP_DIR, 'silence.mp3');
+const JINGLE_PATH = join(ROOT, 'assets', 'jingle.mp3');
+const JINGLE_NIGHT = [
+  { path: join(ROOT, 'assets', 'jingle-nightcode.mp3'), title: 'radioGAGA Nightcode', duration: 91 },
+  { path: join(ROOT, 'assets', 'jingle-afterdark.mp3'), title: 'radioGAGA After Dark', duration: 126 },
+];
+const JINGLE_SUNRISE = [
+  { path: join(ROOT, 'assets', 'jingle-sunrise-1.mp3'), title: 'radioGAGA Sunrise 1', duration: 50 },
+  { path: join(ROOT, 'assets', 'jingle-sunrise-2.mp3'), title: 'radioGAGA Sunrise 2', duration: 70 },
+];
+const JINGLE_AIMUSIC = { path: join(ROOT, 'assets', 'jingle-aimusic.mp3'), title: 'radioGAGA AI Music', duration: 115 };
+const JINGLE_INTERVAL_MS = 15 * 60 * 1000;            // daytime: every 15 min
+const SPECIAL_JINGLE_INTERVAL_MS = 30 * 60 * 1000;    // night/sunrise: every 30 min
+const AIMUSIC_JINGLE_INTERVAL_MS = 60 * 60 * 1000;    // hourly during daytime (9am-9pm)
+const NIGHT_HOURS = new Set([21, 22, 23, 0, 1, 2, 3, 4]);   // 9pm–4am
+const SUNRISE_HOURS = new Set([5, 6, 7, 8]);                  // 5am–8am
+const DAYTIME_HOURS = new Set([9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]); // 9am–8pm
 
 let ffmpegProc = null;
 let running = false;
 let silenceReady = false;
+let lastFallbackTrack = null;  // track info for back-announce on archive fallback
+let fallbackTrackCount = 0;     // counts archive fallback tracks for ad cadence
+let lastShoutoutTime = 0;       // timestamp of last shoutout played
+let lastJingleTime = 0;         // timestamp of last jingle played
+let lastAiMusicJingleTime = 0;  // timestamp of last AI Music hourly jingle
+let nightJingleIndex = 0;       // alternates between Nightcode and After Dark
+let sunriseJingleIndex = 0;     // alternates between Sunrise 1 and 2
+let lastStreamSlotId = null;    // detect show transitions
+const SHOUTOUT_COOLDOWN_MS = 60_000; // max 1 shoutout per minute
 
 // Generate a 5-second silence MP3 once at startup.
 async function ensureSilence() {
@@ -87,14 +120,34 @@ async function pipeSegment(segment, stdin) {
 
   console.log(`[stream] >> ${segment.type.toUpperCase()}: ${segment.title}`);
 
-  const durationMs = await getAudioDurationMs(segment.path)
+  const MAX_MUSIC_MS = 240_000; // 4 min hard cap for music tracks
+  let durationMs = await getAudioDurationMs(segment.path)
     ?? (segment.duration ? segment.duration * 1000 : 30000);
+
+  // Cap music tracks at 4 minutes — trim file with ffmpeg if needed
+  if (segment.type === 'music' && durationMs > MAX_MUSIC_MS) {
+    try {
+      const trimmedPath = segment.path.replace(/\.mp3$/, '-trimmed.mp3');
+      await execFileAsync('ffmpeg', [
+        '-i', segment.path,
+        '-t', String(MAX_MUSIC_MS / 1000),
+        '-af', `afade=t=out:st=${(MAX_MUSIC_MS / 1000) - 3}:d=3`,
+        '-c:a', 'libmp3lame', '-ab', '128k', '-ar', '44100',
+        '-y', trimmedPath,
+      ]);
+      console.log(`[stream] Trimmed ${Math.round(durationMs / 1000)}s → ${MAX_MUSIC_MS / 1000}s: ${segment.title}`);
+      segment.path = trimmedPath;
+      durationMs = MAX_MUSIC_MS;
+    } catch (err) {
+      console.warn(`[stream] Trim failed, playing full: ${err.message}`);
+    }
+  }
 
   const pipeStart = Date.now();
   await pipeFile(segment.path, stdin);
 
   // Clean up tmp files after piping
-  if (segment.path.startsWith(join(process.cwd(), 'tmp', 'audio'))) {
+  if (segment.path.startsWith(join(ROOT, 'tmp', 'audio'))) {
     await unlink(segment.path).catch(() => {});
   }
 
@@ -141,7 +194,8 @@ function startFFmpeg() {
 
   proc.on('close', (code) => {
     console.warn(`[stream] FFmpeg exited (${code}) — restarting in 2s`);
-    ffmpegProc = null;
+    // Null out immediately so runLoop stops writing to dead stdin
+    if (ffmpegProc === proc) ffmpegProc = null;
     if (running) {
       setTimeout(() => { ffmpegProc = startFFmpeg(); }, 2000);
     }
@@ -164,29 +218,159 @@ async function runLoop() {
       continue;
     }
 
+    // 0a. Station jingle — daytime sting every 15 min, night jingles every 30 min (alternating)
+    {
+      const slot = getCurrentSlot();
+      const hour = new Date().getHours();
+      const isNight = NIGHT_HOURS.has(hour);
+      const isSunrise = SUNRISE_HOURS.has(hour);
+      const interval = (isNight || isSunrise) ? SPECIAL_JINGLE_INTERVAL_MS : JINGLE_INTERVAL_MS;
+      const showChanged = lastStreamSlotId && slot.id !== lastStreamSlotId;
+      const jingleDue = Date.now() - lastJingleTime >= interval;
+      lastStreamSlotId = slot.id;
+
+      if ((jingleDue || showChanged) && ffmpegProc) {
+        let jingle;
+        if (isNight) {
+          jingle = JINGLE_NIGHT[nightJingleIndex % JINGLE_NIGHT.length];
+          nightJingleIndex++;
+        } else if (isSunrise) {
+          jingle = JINGLE_SUNRISE[sunriseJingleIndex % JINGLE_SUNRISE.length];
+          sunriseJingleIndex++;
+        } else {
+          jingle = { path: JINGLE_PATH, title: 'radioGAGA Sting', duration: 29 };
+        }
+
+        if (existsSync(jingle.path)) {
+          if (showChanged) console.log(`[stream] Show transition → ${slot.name} — playing ${jingle.title}`);
+          else console.log(`[stream] Periodic: ${jingle.title}`);
+          logBroadcast({ type: 'jingle', title: jingle.title, slot: slot.id });
+          try {
+            await pipeSegment({ ...jingle, type: 'jingle' }, ffmpegProc.stdin);
+          } catch (err) {
+            console.error('[stream] Jingle pipe failed:', err.message);
+          }
+          lastJingleTime = Date.now();
+        }
+      }
+    }
+
+    // 0a-2. AI Music hourly jingle — 9am to 8pm, roughly every hour
+    {
+      const hour = new Date().getHours();
+      if (DAYTIME_HOURS.has(hour) && Date.now() - lastAiMusicJingleTime >= AIMUSIC_JINGLE_INTERVAL_MS && ffmpegProc) {
+        if (existsSync(JINGLE_AIMUSIC.path)) {
+          console.log(`[stream] Hourly: ${JINGLE_AIMUSIC.title}`);
+          logBroadcast({ type: 'jingle', title: JINGLE_AIMUSIC.title, slot: getCurrentSlot().id });
+          try {
+            await pipeSegment({ ...JINGLE_AIMUSIC, type: 'jingle' }, ffmpegProc.stdin);
+          } catch (err) {
+            console.error('[stream] AI Music jingle failed:', err.message);
+          }
+          lastAiMusicJingleTime = Date.now();
+        }
+      }
+    }
+
+    // 0b. Priority shoutouts — play between segments, max 1/min, never after adverts/decent
+    if (Date.now() - lastShoutoutTime >= SHOUTOUT_COOLDOWN_MS) {
+      const shoutout = getNextShoutout();
+      if (shoutout) {
+        console.log(`[stream] Playing shoutout (${shoutout.length} parts)`);
+        for (const part of shoutout) {
+          if (!ffmpegProc) break;
+          logBroadcast({ type: 'shoutout', title: part.title, slot: part.slot });
+          try {
+            await pipeSegment(part, ffmpegProc.stdin);
+          } catch (err) {
+            console.error('[stream] Shoutout pipe failed:', err.message);
+          }
+        }
+        lastShoutoutTime = Date.now();
+      }
+    }
+
     // 1. Real content from queue
     if (queue.length > 0) {
       const segment = queue.shift();
+      const isAdvert = segment.type === 'advert' || (segment.title || '').toLowerCase().includes('decent');
       logBroadcast({ type: segment.type, title: segment.title, slot: segment.slot });
       try {
+        if (!ffmpegProc) continue; // FFmpeg died between check and pipe
         await pipeSegment(segment, ffmpegProc.stdin);
       } catch (err) {
         console.error('[stream] Segment pipe failed:', err.message);
       }
+      // Block shoutouts for 60s after adverts/decent spots
+      if (isAdvert) lastShoutoutTime = Date.now();
       continue;
     }
 
-    // 2. Archive music fallback — CC AI tracks, sounds like real content
+    // 2. Archive music fallback — CC tracks with proper DJ intros/outros
+    //    Mimics the produced content flow: intro → track → outro, with
+    //    adverts every 3rd track to break up the music wall.
     if (archivePoolSize() > 0) {
       const track = getArchiveTrack();
       if (track && existsSync(track.path)) {
-        console.log(`[stream] Archive fill: ${track.title}`);
-        logBroadcast({ type: 'music', title: track.title, slot: null });
+        const slot = getCurrentSlot();
+        const trackInfo = { title: track.title, creator: track.creator, mood: slot.musicMood || '' };
+
+        // Back-announce previous archive track if we have one
+        if (lastFallbackTrack) {
+          try {
+            const outro = await generateTrackOutro(slot, lastFallbackTrack);
+            if (outro.path && existsSync(outro.path)) {
+              logBroadcast({ type: 'dj', title: outro.title, slot: slot.id });
+              if (ffmpegProc) await pipeSegment({ ...outro, type: 'dj' }, ffmpegProc.stdin);
+            }
+          } catch (err) {
+            console.warn(`[stream] Fallback outro failed: ${err.message}`);
+          }
+        }
+
+        // Every 3rd archive track, drop in a catalog advert
+        fallbackTrackCount++;
+        if (fallbackTrackCount % 3 === 0 && catalogSize() > 0) {
+          const ad = getFromCatalog(slot.advertHumor);
+          if (ad && existsSync(ad.path)) {
+            console.log(`[stream] Fallback ad break: ${ad.title}`);
+            logBroadcast({ type: 'advert', title: ad.title, slot: slot.id });
+            try {
+              if (ffmpegProc) await pipeSegment({ ...ad, type: 'advert' }, ffmpegProc.stdin);
+            } catch (err) {
+              console.error('[stream] Fallback ad failed:', err.message);
+            }
+          }
+        }
+
+        // Track intro
         try {
-          await pipeSegment({ ...track, type: 'music' }, ffmpegProc.stdin);
+          const intro = await generateTrackIntro(slot, trackInfo);
+          if (intro.path && existsSync(intro.path)) {
+            logBroadcast({ type: 'dj', title: intro.title, slot: slot.id });
+            if (ffmpegProc) await pipeSegment({ ...intro, type: 'dj' }, ffmpegProc.stdin);
+          }
+        } catch (err) {
+          // Minimal fallback intro via TTS
+          try {
+            const line = track.title.startsWith('AI Music')
+              ? `Something fresh for you on radioGAGA.`
+              : `This is ${track.title} by ${track.creator}.`;
+            const { path } = await textToMp3(line, slot.voice);
+            if (ffmpegProc) await pipeSegment({ path, type: 'dj', title: `Quick intro — ${track.title}` }, ffmpegProc.stdin);
+          } catch {}
+          console.warn(`[stream] Fallback intro failed: ${err.message}`);
+        }
+
+        // The actual track
+        console.log(`[stream] Archive fill: ${track.title}`);
+        logBroadcast({ type: 'music', title: track.title, slot: slot.id });
+        try {
+          if (ffmpegProc) await pipeSegment({ ...track, type: 'music' }, ffmpegProc.stdin);
         } catch (err) {
           console.error('[stream] Archive fill failed:', err.message);
         }
+        lastFallbackTrack = trackInfo;
         continue;
       }
     }
@@ -209,7 +393,7 @@ async function runLoop() {
       }
     }
 
-    // 3. Last resort — silence to keep connection alive
+    // 4. Last resort — silence to keep connection alive
     await pipeSilence(ffmpegProc.stdin);
   }
 }

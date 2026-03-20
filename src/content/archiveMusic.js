@@ -7,31 +7,34 @@
 
 import { existsSync, mkdirSync } from 'fs';
 import { readFile, writeFile, unlink } from 'fs/promises';
-import { join, basename } from 'path';
+import { join, basename, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 
 const execFileAsync = promisify(execFile);
 
-const ARCHIVE_DIR  = join(process.cwd(), 'tmp', 'music', 'archive');
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const ROOT = join(__dirname, '..', '..');
+const ARCHIVE_DIR  = join(ROOT, 'tmp', 'music', 'archive');
 const INDEX_PATH   = join(ARCHIVE_DIR, 'index.json');
 const TARGET_COUNT = 120;  // tracks to keep on disk
 const MIN_DUR_S    = 20;
-const MAX_DUR_S    = 480;  // 8 min cap
+const MAX_DUR_S    = 240;  // 4 min hard cap
+const IDEAL_DUR_S  = 180;  // 3 min target — prefer tracks near this length
 
-// Ordered search queries — most likely to yield genuine AI tracks first.
+// CC-licensed music from Archive.org netlabels — verified to return results.
 const QUERIES = [
-  'subject:suno AND mediatype:audio',
-  'subject:udio AND mediatype:audio',
-  'subject:"ai music" AND mediatype:audio',
-  'subject:"ai generated music" AND mediatype:audio',
-  'subject:"generative music" AND mediatype:audio',
-  'subject:"suno ai" AND mediatype:audio',
-  'subject:"udio ai" AND mediatype:audio',
-  'subject:"music generation" AND mediatype:audio',
-  'subject:"electronic music" AND mediatype:audio AND licenseurl:"creativecommons"',
-  'subject:"ambient music" AND mediatype:audio AND licenseurl:"creativecommons"',
-  'subject:"lo-fi" AND mediatype:audio AND licenseurl:"creativecommons"',
+  'collection:netlabels AND mediatype:audio AND subject:electronic',
+  'collection:netlabels AND mediatype:audio AND subject:ambient',
+  'collection:netlabels AND mediatype:audio AND subject:instrumental',
+  'collection:netlabels AND mediatype:audio AND subject:"lo-fi"',
+  'collection:netlabels AND mediatype:audio AND subject:techno',
+  'collection:netlabels AND mediatype:audio AND subject:house',
+  'collection:netlabels AND mediatype:audio AND subject:experimental',
+  'collection:netlabels AND mediatype:audio AND subject:downtempo',
+  'collection:netlabels AND mediatype:audio AND subject:chillout',
+  'collection:netlabels AND mediatype:audio AND subject:jazz',
 ];
 
 let pool    = [];   // { identifier, title, creator, path, duration, addedAt }
@@ -45,19 +48,35 @@ async function loadPool() {
       const raw = JSON.parse(await readFile(INDEX_PATH, 'utf8'));
       pool = raw.filter(t => existsSync(t.path));
     }
-  } catch { pool = []; }
+  } catch (err) {
+    console.warn('[archive] Failed to load pool index:', err.message);
+    pool = [];
+  }
 }
 
+// Debounced save — coalesces rapid writes during seeding
+let poolSaveTimer = null;
 async function savePool() {
+  if (poolSaveTimer) return;
+  poolSaveTimer = setTimeout(async () => {
+    poolSaveTimer = null;
+    try {
+      await writeFile(INDEX_PATH, JSON.stringify(pool, null, 2));
+    } catch (err) {
+      console.warn('[archive] Failed to save pool index:', err.message);
+    }
+  }, 2000);
+}
+
+async function savePoolNow() {
+  if (poolSaveTimer) { clearTimeout(poolSaveTimer); poolSaveTimer = null; }
   await writeFile(INDEX_PATH, JSON.stringify(pool, null, 2));
 }
 
 // ── Archive.org API ─────────────────────────────────────────────────────────
 
 async function searchArchive(query, rows = 30) {
-  const q = encodeURIComponent(
-    `(${query}) AND licenseurl:"https://creativecommons.org"`
-  );
+  const q = encodeURIComponent(query);
   const url =
     `https://archive.org/advancedsearch.php?q=${q}` +
     `&fl[]=identifier,title,creator&output=json&rows=${rows}&sort[]=downloads+desc`;
@@ -81,12 +100,13 @@ async function findMp3(identifier) {
       return true;
     })
     .sort((a, b) => {
-      // prefer files whose declared duration is in our window
-      const inRange = f => {
+      // Prefer tracks closest to IDEAL_DUR_S (3 min), reject out-of-range
+      const score = f => {
         const d = parseFloat(f.length);
-        return d >= MIN_DUR_S && d <= MAX_DUR_S ? 0 : 1;
+        if (!d || d < MIN_DUR_S || d > MAX_DUR_S) return 9999;
+        return Math.abs(d - IDEAL_DUR_S); // lower = closer to ideal
       };
-      return inRange(a) - inRange(b);
+      return score(a) - score(b);
     })[0];
 
   if (!mp3) return null;
@@ -193,6 +213,7 @@ export async function seedArchiveMusic() {
     }
   }
 
+  await savePoolNow(); // flush any pending debounced writes
   console.log(`[archive] Pool: ${pool.length}/${TARGET_COUNT} (+${added})`);
   seeding = false;
 }

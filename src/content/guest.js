@@ -2,10 +2,8 @@
 // Generates a guest name, bio, and 3–4 exchange Q&A with the host.
 // Guest voice is randomly selected to differ from the host.
 
-import { Ollama } from 'ollama';
+import { ollama } from './ollama.js';
 import { renderDialogue } from './dialogue.js';
-
-const ollama = new Ollama({ host: 'http://localhost:11434' });
 
 // Voices that can be used for guests (excluding typical host voices)
 const GUEST_VOICES = [
@@ -85,6 +83,15 @@ Nothing else.`;
   const dialoguePrompt = `You are writing a radio interview segment for radioGAGA.
 ${interviewerLine} ${guestName}, a ${guestBio}.
 The interesting thing about ${guestName}: ${guestHook}
+
+ANONYMITY RULE (MANDATORY, NO EXCEPTIONS):
+NEVER use real names of people, companies, or places. ALWAYS replace them with silly
+fictional names that echo the original sound. E.g. "Picasso" → "Pricasso",
+"Harvard" → "Blarvard", "Netflix" → "Netflonk", "Berlin" → "Bürlin".
+This applies to every proper noun mentioned in conversation. Zero tolerance.
+SOLE EXCEPTION: real decentralisation / open-source project names (e.g. Bitcoin, IPFS,
+Ethereum, Tor, Signal, Mastodon) may be used when discussing the technology itself.
+This does NOT cover the people or companies behind them.
 
 Write a natural radio interview — 3 to 4 exchanges (question + answer).
 ${coHostName ? `Both ${hostName} and ${coHostName} can ask questions. Mix it up.` : ''}
