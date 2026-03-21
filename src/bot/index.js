@@ -170,8 +170,10 @@ export function stopBot() {
 export async function startBot() {
   if (!requireToken()) return;
 
-  // Wait 3s on startup to let any previous instance's polling connection timeout
-  await new Promise(r => setTimeout(r, 3000));
+  // Wait 35s on startup — Telegram long-poll timeout is 30s, so the old
+  // instance's connection must close before we start a new one
+  console.log('[bot] Waiting 35s for previous polling connection to close...');
+  await new Promise(r => setTimeout(r, 35000));
 
   bot = new Bot(TOKEN);
   initCompetitions(bot);

@@ -123,8 +123,9 @@ async function fillCatalog() {
     while (catalog.length < CATALOG_TARGET) {
       const isDecent = (catalog.length % DECENT_EVERY_N) === 0;
       const humor = isDecent ? 'decent' : HUMOR_STYLES[(catalog.length % (HUMOR_STYLES.length * DECENT_EVERY_N)) % HUMOR_STYLES.length];
+      const currentSlot = (await import('../schedule.js')).getCurrentSlot();
       const fakeSlot = {
-        voice: 'en-GB-RyanNeural',
+        voice: currentSlot.voice,
         advertHumor: humor,
         advertMusicBed: false,
         id: 'catalog',
