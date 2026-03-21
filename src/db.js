@@ -387,6 +387,12 @@ export function incrementAdPlayCount(id) {
   return db.prepare('UPDATE listener_adverts SET play_count = play_count + 1 WHERE id = ?').run(id);
 }
 
+export function findDonationByRef(ref) {
+  return db.prepare(`
+    SELECT * FROM donations WHERE message LIKE ? ORDER BY created_at DESC LIMIT 1
+  `).get(`%${ref}%`);
+}
+
 export function getPendingTextAdverts() {
   return db.prepare(`
     SELECT * FROM listener_adverts

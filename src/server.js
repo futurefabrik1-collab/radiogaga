@@ -7,7 +7,7 @@ import { mkdirSync, existsSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { queue } from './queue.js';
-import { getStats, getBroadcastHistory, getProvenanceLog, getProvenanceCount, submitShowIdea, submitAdvert, logDonation, getTotalDonations, getRecentDonations } from './db.js';
+import { getStats, getBroadcastHistory, getProvenanceLog, getProvenanceCount, submitShowIdea, submitAdvert, logDonation, getTotalDonations, getRecentDonations, findDonationByRef } from './db.js';
 import { addWebSuggestion, addWebShoutout } from './web-submissions.js';
 import { moderateAdvert } from './content/moderator.js';
 import { catalogStats } from './content/advertCatalog.js';
@@ -259,6 +259,14 @@ app.post('/api/kofi-webhook', express.urlencoded({ extended: true }), (req, res)
     console.error('[kofi] Webhook error:', err.message);
     res.status(400).json({ error: 'Bad payload' });
   }
+});
+
+// Verify a tip was made with a specific reference code
+app.get('/api/verify-tip', (req, res) => {
+  const ref = req.query.ref;
+  if (!ref || ref.length < 4) return res.json({ verified: false });
+  const donation = findDonationByRef(ref);
+  res.json({ verified: !!donation, amount: donation?.amount || 0 });
 });
 
 // Recent donations (public — no emails)
