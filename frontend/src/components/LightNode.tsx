@@ -163,7 +163,7 @@ export default function LightNode({ id, label, x, y, hue, children, mouseX, mous
             style={{ background: `hsla(220, 30%, 5%, 0.85)`, backdropFilter: "blur(20px)" }}
           />
           <div
-            className="relative content-panel max-w-2xl w-full max-h-[80vh] overflow-y-auto p-8 md:p-12 animate-fade-in-up"
+            className="relative content-panel max-w-sm w-full max-h-[60vh] overflow-y-auto p-4 md:p-5 text-sm animate-fade-in-up"
             onClick={(e) => e.stopPropagation()}
             style={{ animationDelay: "0.1s", opacity: 0 }}
           >
