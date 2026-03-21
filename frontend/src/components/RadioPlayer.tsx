@@ -8,7 +8,8 @@ interface NowPlaying { type: string; title: string; slot: string | null; }
 
 const SEGMENT_LABELS: Record<string, string> = {
   dj: "PRESENTER", music: "MUSIC", advert: "AD BREAK", news: "NEWS",
-  weather: "WEATHER", guest: "GUEST", "track-intro": "MUSIC", "track-outro": "MUSIC",
+  weather: "WEATHER", guest: "GUEST", jingle: "JINGLE", shoutout: "SHOUTOUT",
+  "track-intro": "INTRO", "track-outro": "OUTRO",
 };
 
 function useShows() {
