@@ -154,6 +154,12 @@ app.get('/api/history', (req, res) => {
   res.json(getBroadcastHistory(limit));
 });
 
+// Producer decisions log
+import { getRecentDecisions } from './producer-brain.js';
+app.get('/api/producer-decisions', (req, res) => {
+  res.json(getRecentDecisions(parseInt(req.query.limit) || 20));
+});
+
 // Serve clip files
 app.use('/clips', express.static(join(process.cwd(), 'data', 'clips')));
 
