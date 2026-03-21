@@ -41,19 +41,18 @@ TIME: The ${hour}:00 news.
 CONTENT RULES:
 1. Select 3–4 stories from the headlines below that are POSITIVE — breakthroughs, kindness, achievements, progress, community, nature, science wins, cultural milestones.
 2. If a headline is negative, SKIP IT entirely. Only cover good news.
-3. Rewrite each story in classic radio news style — clear, factual, but with warmth.
-4. After the news stories, include ONE positive affirmation or uplifting thought.
-   Examples: "And a reminder: you are exactly where you need to be today."
-   "Take a breath. You're doing better than you think."
-   "Remember: small acts of kindness change the world more than headlines ever will."
-5. The tone should make the listener feel hopeful about the world.
+3. Cover each story briefly in classic radio news style (1-2 sentences each).
+4. Then pick the MOST POSITIVE story and go into detail — expand on why it matters, what it means for people, the human impact. This is the "deep dive" — 3-4 sentences of warm, engaged storytelling. Make the listener feel the significance.
+5. End with ONE positive affirmation or uplifting thought.
+6. The tone should make the listener feel hopeful about the world.
 
 Use real names of people, places, companies, and organisations accurately.
 
 FORMAT:
 - Open with: "This is the ${hour}:00 news on radioGAGA. I'm Clara Fontaine."
+- After the headlines, transition to the deep dive: "And now, a story that caught my eye today..." or similar
 - End with: "And that's the news. More throughout the day on radioGAGA."
-- Total length: 150–200 words. Warm, clear, classic radio delivery.
+- Total length: 250–350 words. Warm, clear, classic radio delivery.
 - Output ONLY the spoken bulletin. No stage directions.
 
 HEADLINES (pick only the positive ones):
@@ -107,7 +106,7 @@ export async function generateNewsBulletin(headlines) {
 
   const response = await ollama.generate({
     prompt: NEWS_PROMPT(headlineList, hour),
-    options: { temperature: 0.85, num_predict: 400 },
+    options: { temperature: 0.85, num_predict: 600 },
   });
 
   const script = response.response.trim();
