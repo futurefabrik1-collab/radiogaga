@@ -9,6 +9,10 @@ import { readFile, writeFile } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { generateAdvert, generateDecentAdvert } from './advert.js';
+import { getPendingTextAdverts, updateAdvertStatus } from '../db.js';
+import { ollama } from './ollama.js';
+import { textToMp3 } from './tts.js';
+import { pickAdVoice } from './advert.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..', '..');
@@ -198,6 +202,48 @@ async function rotateCatalog() {
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
+// Process approved listener text ads: generate script via LLM → TTS → store audio path
+async function processListenerAds() {
+  const pending = getPendingTextAdverts();
+  if (!pending.length) return;
+
+  for (const ad of pending) {
+    try {
+      console.log(`[catalog] Processing listener ad: ${ad.business_name} — ${ad.product}`);
+
+      // Generate a professional radio ad script from the description
+      const scriptResponse = await ollama.generate({
+        prompt: `Write a 20-second radio advertisement (45-60 words) for the following:
+
+Business: ${ad.business_name}
+Product/Service: ${ad.product}
+Description: ${ad.description}
+Tone: ${ad.tone || 'casual'}
+${ad.target_audience ? `Target audience: ${ad.target_audience}` : ''}
+${ad.website ? `Website: ${ad.website}` : ''}
+
+Rules:
+- Exactly 45-60 words, punchy and engaging
+- Match the requested tone
+- End with a call to action
+- Output ONLY the spoken ad script, no stage directions
+
+Write the ad now:`,
+        options: { temperature: 0.85, num_predict: 120 },
+      });
+
+      const script = scriptResponse.response.trim();
+      const voice = pickAdVoice(''); // random ad voice
+      const { path } = await textToMp3(script, voice, { energy: 3 });
+
+      updateAdvertStatus(ad.id, 'approved', 'Auto-generated and approved', path);
+      console.log(`[catalog] Listener ad ready: ${ad.business_name} → ${path}`);
+    } catch (err) {
+      console.error(`[catalog] Failed to process listener ad ${ad.id}:`, err.message);
+    }
+  }
+}
+
 export async function startCatalogWorker() {
   await loadIndex();
   const stats = catalogStats();
@@ -206,6 +252,10 @@ export async function startCatalogWorker() {
   // Fill in background immediately, then top up on interval
   fillCatalog().catch(() => {});
   setInterval(() => fillCatalog().catch(() => {}), REPLENISH_INTERVAL);
+
+  // Process approved listener ads every 5 minutes
+  processListenerAds().catch(() => {});
+  setInterval(() => processListenerAds().catch(() => {}), 5 * 60 * 1000);
 
   // Daily rotation: remove oldest, add newest — keeps catalog fresh
   setInterval(() => rotateCatalog().catch(() => {}), MS_PER_DAY);

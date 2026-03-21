@@ -14,13 +14,21 @@ const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
-// Add location column to existing DBs (no-op if already present)
-try {
-  db.exec(`ALTER TABLE listeners ADD COLUMN location TEXT`);
-} catch (err) {
-  // Expected: "duplicate column name" on subsequent runs — only warn on unexpected errors
-  if (!err.message.includes('duplicate column')) {
-    console.warn('[db] ALTER TABLE listeners failed:', err.message);
+// Migrations — add columns to existing tables (no-op if already present)
+const migrations = [
+  'ALTER TABLE listeners ADD COLUMN location TEXT',
+  'ALTER TABLE listener_adverts ADD COLUMN audio_path TEXT',
+  'ALTER TABLE listener_adverts ADD COLUMN payment_ref TEXT',
+  'ALTER TABLE listener_adverts ADD COLUMN moderation_status TEXT DEFAULT \'pending\'',
+  'ALTER TABLE listener_adverts ADD COLUMN moderation_reason TEXT',
+  'ALTER TABLE listener_adverts ADD COLUMN approved_audio_path TEXT',
+  'ALTER TABLE listener_adverts ADD COLUMN play_count INTEGER DEFAULT 0',
+];
+for (const sql of migrations) {
+  try { db.exec(sql); } catch (err) {
+    if (!err.message.includes('duplicate column')) {
+      console.warn('[db] Migration failed:', err.message);
+    }
   }
 }
 
@@ -339,15 +347,52 @@ export function getShowIdeas(status = 'pending') {
 
 // ── Listener adverts ────────────────────────────────────────────────────────
 
-export function submitAdvert({ business_name, product, description, tone, target_audience, website, submitter_name }) {
+export function submitAdvert({ business_name, product, description, tone, target_audience, website, submitter_name, audio_path, payment_ref, moderation_status, moderation_reason }) {
   return db.prepare(`
-    INSERT INTO listener_adverts (business_name, product, description, tone, target_audience, website, submitter_name)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(business_name, product, description, tone || 'casual', target_audience || null, website || null, submitter_name || null);
+    INSERT INTO listener_adverts (business_name, product, description, tone, target_audience, website, submitter_name, audio_path, payment_ref, moderation_status, moderation_reason)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    business_name, product, description, tone || 'casual',
+    target_audience || null, website || null, submitter_name || null,
+    audio_path || null, payment_ref || null,
+    moderation_status || 'pending', moderation_reason || null
+  );
 }
 
 export function getAdverts(status = 'pending') {
   return db.prepare('SELECT * FROM listener_adverts WHERE status = ? ORDER BY created_at DESC').all(status);
+}
+
+export function updateAdvertStatus(id, status, reason = null, approvedAudioPath = null) {
+  return db.prepare(`
+    UPDATE listener_adverts SET moderation_status = ?, moderation_reason = ?, approved_audio_path = ? WHERE id = ?
+  `).run(status, reason, approvedAudioPath, id);
+}
+
+export function getApprovedAdverts() {
+  return db.prepare(`
+    SELECT * FROM listener_adverts WHERE moderation_status = 'approved' AND approved_audio_path IS NOT NULL
+    ORDER BY play_count ASC, created_at ASC
+  `).all();
+}
+
+export function getNextListenerAd() {
+  return db.prepare(`
+    SELECT * FROM listener_adverts WHERE moderation_status = 'approved' AND approved_audio_path IS NOT NULL
+    ORDER BY play_count ASC, created_at ASC LIMIT 1
+  `).get();
+}
+
+export function incrementAdPlayCount(id) {
+  return db.prepare('UPDATE listener_adverts SET play_count = play_count + 1 WHERE id = ?').run(id);
+}
+
+export function getPendingTextAdverts() {
+  return db.prepare(`
+    SELECT * FROM listener_adverts
+    WHERE moderation_status = 'approved' AND audio_path IS NULL AND approved_audio_path IS NULL
+    ORDER BY created_at ASC
+  `).all();
 }
 
 export default db;

@@ -28,6 +28,7 @@ import { generateGuestSegment } from './guest.js';
 import { generateNewsBulletin } from './news.js';
 import { generateWeatherForecast } from './weather.js';
 import { existsSync } from 'node:fs';
+import { getNextListenerAd, incrementAdPlayCount } from '../db.js';
 import { initFoleyPool, startBedWorker } from './studioFx.js';
 
 const POLL_INTERVAL_MS = 4000;
@@ -315,6 +316,26 @@ async function produceNewsBulletin() {
 }
 
 async function produceAdvert(slot) {
+  // Prioritise listener-submitted ads over AI-generated ones
+  try {
+    const listenerAd = getNextListenerAd();
+    if (listenerAd && listenerAd.approved_audio_path && existsSync(listenerAd.approved_audio_path)) {
+      incrementAdPlayCount(listenerAd.id);
+      queue.push({
+        path: listenerAd.approved_audio_path,
+        type: 'advert',
+        title: `Sponsored: ${listenerAd.business_name} — ${listenerAd.product}`,
+        slot: slot.id,
+        generator: 'listener-submitted',
+        source: 'listener-advert',
+      });
+      console.log(`[producer] Listener ad queued: ${listenerAd.business_name}`);
+      return;
+    }
+  } catch (err) {
+    // Fall through to AI-generated ad
+  }
+
   try {
     const advert = await generateAdvert(slot);
     queue.push(advert);

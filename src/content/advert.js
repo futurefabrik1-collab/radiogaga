@@ -17,7 +17,7 @@ const AD_VOICES = [
 ];
 
 // Pick a voice that is NOT the current presenter's voice.
-function pickAdVoice(presenterVoice) {
+export function pickAdVoice(presenterVoice) {
   const options = AD_VOICES.filter(v => v !== presenterVoice);
   return options[Math.floor(Math.random() * options.length)];
 }

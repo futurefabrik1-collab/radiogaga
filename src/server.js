@@ -1,12 +1,35 @@
 // Express API server — frontend polls this for now-playing info.
 
 import express from 'express';
+import multer from 'multer';
+import { join } from 'node:path';
+import { mkdirSync, existsSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { queue } from './queue.js';
 import { getStats, getBroadcastHistory, getProvenanceLog, getProvenanceCount, submitShowIdea, submitAdvert, logDonation, getTotalDonations, getRecentDonations } from './db.js';
 import { addWebSuggestion, addWebShoutout } from './web-submissions.js';
+import { moderateAdvert } from './content/moderator.js';
 import { catalogStats } from './content/advertCatalog.js';
 import { archivePoolSize } from './content/archiveMusic.js';
 import { SCHEDULE, setSlotOverride, clearSlotOverride, getCurrentSlot } from './schedule.js';
+
+const execFileAsync = promisify(execFile);
+
+// Multer setup for advert audio uploads
+const UPLOAD_DIR = join(process.cwd(), 'data', 'uploads', 'adverts');
+mkdirSync(UPLOAD_DIR, { recursive: true });
+const upload = multer({
+  dest: UPLOAD_DIR,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'audio/mpeg' || file.mimetype === 'audio/mp3' || file.originalname.endsWith('.mp3')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only MP3 files are accepted'));
+    }
+  },
+});
 
 const PORT = process.env.PORT || 3000;
 const API_TOKEN = process.env.API_TOKEN;
@@ -108,15 +131,71 @@ app.post('/api/show-idea', (req, res) => {
   }
 });
 
-// Listener advert submission
-app.post('/api/advert', (req, res) => {
-  const { business_name, product, description, tone, target_audience, website, submitter_name } = req.body;
+// Listener advert submission — supports both JSON (text ad) and multipart (audio upload)
+app.post('/api/advert', upload.single('audio'), async (req, res) => {
+  const { business_name, product, description, tone, target_audience, website, submitter_name, payment_ref } = req.body;
   if (!business_name || !product || !description) {
-    return res.status(400).json({ error: 'Missing required fields' });
+    return res.status(400).json({ error: 'Missing required fields: business_name, product, description' });
   }
+
+  let audioPath = null;
+  let moderationStatus = 'pending';
+  let moderationReason = null;
+
+  // Handle uploaded audio file
+  if (req.file) {
+    const finalPath = join(UPLOAD_DIR, `${Date.now()}-${req.file.originalname || 'ad.mp3'}`);
+    const { rename } = await import('node:fs/promises');
+    await rename(req.file.path, finalPath);
+
+    // Validate audio duration (max 60s)
+    try {
+      const { stdout } = await execFileAsync('ffprobe', [
+        '-v', 'error', '-show_entries', 'format=duration',
+        '-of', 'csv=p=0', finalPath,
+      ]);
+      const durationS = parseFloat(stdout.trim());
+      if (durationS > 60) {
+        const { unlink } = await import('node:fs/promises');
+        await unlink(finalPath).catch(() => {});
+        return res.status(400).json({ error: 'Audio must be 60 seconds or less' });
+      }
+    } catch (err) {
+      console.warn('[advert] Could not probe audio duration:', err.message);
+    }
+
+    audioPath = finalPath;
+    moderationStatus = 'review'; // uploaded audio needs manual review
+    moderationReason = 'Uploaded audio — awaiting manual review';
+  } else {
+    // Text-only ad: run LLM moderation
+    try {
+      const verdict = await moderateAdvert({ business_name, product, description, tone });
+      moderationStatus = verdict.approved ? 'approved' : 'rejected';
+      moderationReason = verdict.reason;
+    } catch (err) {
+      moderationStatus = 'review';
+      moderationReason = 'Moderation failed — flagged for manual review';
+    }
+  }
+
   try {
-    submitAdvert({ business_name, product, description: description.slice(0, 500), tone, target_audience, website, submitter_name });
-    res.json({ ok: true });
+    submitAdvert({
+      business_name,
+      product,
+      description: description.slice(0, 500),
+      tone, target_audience, website, submitter_name,
+      audio_path: audioPath,
+      payment_ref: payment_ref || null,
+      moderation_status: moderationStatus,
+      moderation_reason: moderationReason,
+    });
+
+    const response = { ok: true, moderation_status: moderationStatus };
+    if (moderationStatus === 'rejected') {
+      response.reason = moderationReason;
+    }
+    res.json(response);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -223,6 +223,126 @@ function SubmitButton({ children, sent }: { children: React.ReactNode; sent: boo
   );
 }
 
+function AdvertForm({ sent, submit }: { sent: boolean; submit: (url: string, data: any) => void }) {
+  const [tab, setTab] = useState<"text" | "upload">("text");
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [rejected, setRejected] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const handleTextSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setRejected(null);
+    const f = new FormData(e.currentTarget);
+    const res = await fetch("/api/advert", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        business_name: f.get("business_name"),
+        product: f.get("product"),
+        description: f.get("description"),
+        tone: f.get("tone"),
+        target_audience: f.get("target_audience"),
+        website: f.get("website"),
+        submitter_name: f.get("submitter_name"),
+      }),
+    });
+    const data = await res.json();
+    if (data.moderation_status === "rejected") {
+      setRejected(data.reason || "Content does not meet our guidelines.");
+    } else {
+      submit("/api/advert", {}); // triggers sent state
+    }
+  };
+
+  const handleUploadSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!uploadFile) return;
+    setUploading(true);
+    setRejected(null);
+    const f = new FormData(e.currentTarget);
+    f.append("audio", uploadFile);
+    try {
+      const res = await fetch("/api/advert", { method: "POST", body: f });
+      const data = await res.json();
+      if (data.ok) submit("/api/advert", {});
+      else setRejected(data.error || "Upload failed");
+    } catch {
+      setRejected("Upload failed — please try again");
+    }
+    setUploading(false);
+  };
+
+  return (
+    <ContentSection title="Place an Advert" subtitle="Promote your business on radioGAGA">
+      {/* Tabs */}
+      <div className="flex gap-2 mb-3">
+        {(["text", "upload"] as const).map(t => (
+          <button key={t} onClick={() => setTab(t)}
+            className="flex-1 py-1.5 rounded text-[10px] font-mono tracking-widest uppercase transition-colors"
+            style={{
+              color: tab === t ? "hsl(35, 80%, 65%)" : "hsla(0,0%,100%,0.4)",
+              background: tab === t ? "hsla(35,80%,65%,0.1)" : "transparent",
+              border: `1px solid ${tab === t ? "hsla(35,80%,65%,0.2)" : "hsla(0,0%,100%,0.05)"}`,
+            }}
+          >{t === "text" ? "Describe Your Ad" : "Upload Audio"}</button>
+        ))}
+      </div>
+
+      {rejected && (
+        <div className="mb-3 p-2 rounded text-[10px] font-mono" style={{ background: "hsla(0,70%,50%,0.1)", color: "hsl(0,70%,65%)", border: "1px solid hsla(0,70%,50%,0.2)" }}>
+          {rejected}
+        </div>
+      )}
+
+      {tab === "text" ? (
+        <form onSubmit={handleTextSubmit} className="space-y-2">
+          <FormInput label="Business name" name="business_name" placeholder="Neon Synth Co." required />
+          <FormInput label="Product or service" name="product" placeholder="AI synth plugin" required />
+          <FormTextarea label="Description" name="description" placeholder="What should listeners know?" rows={2} required maxLength={500} />
+          <FormSelect label="Tone" name="tone" options={[
+            { value: "casual", label: "Casual" },
+            { value: "professional", label: "Professional" },
+            { value: "humorous", label: "Humorous" },
+            { value: "dramatic", label: "Dramatic" },
+            { value: "retro", label: "Retro" },
+          ]} />
+          <FormInput label="Target audience" name="target_audience" placeholder="e.g. musicians" />
+          <FormInput label="Website" name="website" placeholder="https://..." />
+          <FormInput label="Your name" name="submitter_name" placeholder="Optional" />
+          <SubmitButton sent={sent}>Submit for Review</SubmitButton>
+        </form>
+      ) : (
+        <form onSubmit={handleUploadSubmit} className="space-y-2">
+          <FormInput label="Business name" name="business_name" placeholder="Neon Synth Co." required />
+          <FormInput label="Product or service" name="product" placeholder="AI synth plugin" required />
+          <FormTextarea label="Brief description" name="description" placeholder="What's the ad about?" rows={2} required maxLength={500} />
+          <div>
+            <label className="text-label text-[9px] tracking-widest uppercase block mb-1 text-foreground/50">Audio file (MP3, max 60s / 5MB)</label>
+            <input type="file" accept=".mp3,audio/mpeg" onChange={e => setUploadFile(e.target.files?.[0] || null)}
+              className="w-full text-[11px] font-mono text-foreground/60 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-[10px] file:font-mono file:tracking-wider file:uppercase file:bg-foreground/10 file:text-foreground/60 file:cursor-pointer" />
+          </div>
+          <FormInput label="Your name" name="submitter_name" placeholder="Optional" />
+          <SubmitButton sent={sent}>{uploading ? "Uploading..." : "Upload Ad"}</SubmitButton>
+        </form>
+      )}
+
+      {/* Ko-fi tip + policy note */}
+      <div className="mt-3 pt-2 border-t border-foreground/5 space-y-2">
+        <a href="https://ko-fi.com/radiogaga/tiers" target="_blank" rel="noopener noreferrer"
+          className="flex items-center justify-center gap-2 py-1.5 rounded text-[10px] font-mono tracking-wider uppercase transition-colors hover:bg-foreground/10"
+          style={{ color: "hsl(35, 80%, 65%)", border: "1px solid hsla(35,80%,65%,0.15)" }}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M18 8h1a4 4 0 010 8h-1" /><path d="M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8z" /><line x1="6" y1="1" x2="6" y2="4" /><line x1="10" y1="1" x2="10" y2="4" /><line x1="14" y1="1" x2="14" y2="4" /></svg>
+          Support with a tip (include your business name)
+        </a>
+        <p className="text-[8px] font-mono text-foreground/30 text-center leading-relaxed">
+          All ads are moderated for content. No political, religious, or harmful content.
+          Uploaded audio requires manual review. AI-generated ads air within 24 hours.
+        </p>
+      </div>
+    </ContentSection>
+  );
+}
+
 function NodeContent({ id }: { id: string }) {
   const { t } = useLanguage();
   const [sent, setSent] = useState(false);
@@ -306,28 +426,7 @@ function NodeContent({ id }: { id: string }) {
         </ContentSection>
       );
     case "advert":
-      return (
-        <ContentSection title="Create an Advert" subtitle="Promote your product, service, or idea on air">
-          <form onSubmit={e => { e.preventDefault(); const f = new FormData(e.currentTarget); submit("/api/advert", { business_name: f.get("business_name"), product: f.get("product"), description: f.get("description"), tone: f.get("tone"), target_audience: f.get("target_audience"), website: f.get("website"), submitter_name: f.get("submitter_name") }); }} className="space-y-3">
-            <FormInput label="Business / brand name" name="business_name" placeholder="Neon Synth Co." required />
-            <FormInput label="Product or service" name="product" placeholder="AI-powered synth plugin" required />
-            <FormTextarea label="Tell us about it" name="description" placeholder="What makes it special? What should listeners know?" rows={3} required maxLength={500} />
-            <div className="grid grid-cols-2 gap-3">
-              <FormSelect label="Tone" name="tone" options={[
-                { value: "professional", label: "Professional" },
-                { value: "casual", label: "Casual" },
-                { value: "humorous", label: "Humorous" },
-                { value: "dramatic", label: "Dramatic" },
-                { value: "retro", label: "Retro" },
-              ]} />
-              <FormInput label="Target audience" name="target_audience" placeholder="e.g. musicians, gamers" />
-            </div>
-            <FormInput label="Website / link" name="website" placeholder="https://..." />
-            <FormInput label="Your name (optional)" name="submitter_name" placeholder="So we can follow up" />
-            <SubmitButton sent={sent}>Submit Advert</SubmitButton>
-          </form>
-        </ContentSection>
-      );
+      return <AdvertForm sent={sent} submit={submit} />;
     case "listen":
       return (
         <ContentSection title={t("listen.title")} subtitle={t("listen.subtitle")}>
