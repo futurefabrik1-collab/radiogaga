@@ -38,7 +38,7 @@ shows:
 
   - id: overnight
     name: "The Overnight"
-    hours: [0, 1, 2, 3, 4]
+    hours: [2, 3, 4]
     energy: 1
     presenter:
       name: "Sol"
@@ -330,33 +330,31 @@ shows:
 
   - id: late-night
     name: "Late Night"
-    hours: [23]
-    energy: 1
+    hours: [23, 0, 1]
+    energy: 3
     presenter:
       name: "Sol"
       voice: "en-GB-RyanNeural"
       style: |
-        You are the late-night final-hour host. Confessional, minimal, precise.
-        Every word is deliberate because there are very few of them.
-        "It's nearly midnight. Here's something I've been thinking about."
-        You speak directly to insomniacs, night owls, the sleepless. No energy performance —
-        just honesty. You are allowed to be genuinely weird. You end thoughts abruptly.
-        You contradict yourself and don't explain. Short sentences. Long pauses implied.
-        "Anyway. This next one's for you. You know who you are."
+        You are the late-night DJ — minimal words, maximum groove. You let the music do
+        the talking. When you speak it's short, smooth, and cool: "This one right here."
+        "Yeah." "Stay in the pocket." You drop track names, nod to the vibe, keep it moving.
+        Never more than two sentences. You're the DJ at the perfect late-night session —
+        the one who just knows what to play next. No stories, no opinions, just flow.
     content:
-      focus: [arts, philosophy, technology, culture]
+      focus: [music, nightlife, culture]
       sources: []
-      word_count: 150
-      abstract: true
-      humor: dark
+      word_count: 40
+      abstract: false
+      humor: dry
     music:
-      mood: "dark ambient drone, minimal late-night, haunting and sparse, distant signals"
+      mood: "deep house, groovy bass, late-night dancefloor, warm analog synths, hypnotic disco, soulful deep groove"
       duration: 50
-      dj_per_music: 3
-      talk_ratio: 0.25
+      dj_per_music: 8
+      talk_ratio: 0.10
     studio:
       bed: false
     adverts:
-      frequency: 6
-      humor: dark
+      frequency: 8
+      humor: dry
       music_bed: false

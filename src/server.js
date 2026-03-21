@@ -2,7 +2,8 @@
 
 import express from 'express';
 import { queue } from './queue.js';
-import { getStats, getBroadcastHistory } from './db.js';
+import { getStats, getBroadcastHistory, getProvenanceLog, getProvenanceCount, submitShowIdea, submitAdvert, logDonation, getTotalDonations, getRecentDonations } from './db.js';
+import { addWebSuggestion, addWebShoutout } from './web-submissions.js';
 import { catalogStats } from './content/advertCatalog.js';
 import { archivePoolSize } from './content/archiveMusic.js';
 import { SCHEDULE, setSlotOverride, clearSlotOverride, getCurrentSlot } from './schedule.js';
@@ -78,14 +79,157 @@ app.get('/api/stats', (req, res) => {
   res.json({ ...getStats(), adverts: catalogStats(), archiveTracks: archivePoolSize() });
 });
 
-// Broadcast history — last 30 played segments
+// Broadcast history — last N played segments (default 30, max 500)
 app.get('/api/history', (req, res) => {
-  res.json(getBroadcastHistory(30));
+  const limit = Math.min(parseInt(req.query.limit) || 30, 500);
+  res.json(getBroadcastHistory(limit));
+});
+
+// Full provenance log — public proof that all content is AI-generated
+app.get('/api/provenance', (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 100, 1000);
+  const offset = parseInt(req.query.offset) || 0;
+  const rows = getProvenanceLog(limit, offset);
+  const total = getProvenanceCount();
+  res.json({ total, offset, limit, entries: rows });
+});
+
+// Show idea submission
+app.post('/api/show-idea', (req, res) => {
+  const { show_name, presenter_name, presenter_style, music_mood, energy, humor, time_slot, submitter_name, submitter_email } = req.body;
+  if (!show_name || !presenter_name || !presenter_style || !music_mood) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+  try {
+    submitShowIdea({ show_name, presenter_name, presenter_style, music_mood, energy, humor, time_slot, submitter_name, submitter_email });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Listener advert submission
+app.post('/api/advert', (req, res) => {
+  const { business_name, product, description, tone, target_audience, website, submitter_name } = req.body;
+  if (!business_name || !product || !description) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+  try {
+    submitAdvert({ business_name, product, description: description.slice(0, 500), tone, target_audience, website, submitter_name });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Web shoutout submission
+app.post('/api/shoutout', (req, res) => {
+  const { name, message } = req.body;
+  if (!message || message.length < 1) return res.status(400).json({ error: 'Message required' });
+  try {
+    addWebShoutout(name || 'Anonymous', message.slice(0, 200));
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Web track request submission
+app.post('/api/request', (req, res) => {
+  const { name, prompt } = req.body;
+  if (!prompt || prompt.length < 1) return res.status(400).json({ error: 'Prompt required' });
+  try {
+    addWebSuggestion(name || 'A listener', prompt.slice(0, 200));
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Ko-fi webhook — receives donation/subscription notifications
+// Ko-fi sends POST with form-encoded body containing a 'data' field with JSON
+app.post('/api/kofi-webhook', express.urlencoded({ extended: true }), (req, res) => {
+  try {
+    const payload = JSON.parse(req.body.data || '{}');
+
+    // Verify token matches (set KOFI_VERIFICATION_TOKEN in .env)
+    const expectedToken = process.env.KOFI_VERIFICATION_TOKEN;
+    if (expectedToken && payload.verification_token !== expectedToken) {
+      console.warn('[kofi] Invalid verification token');
+      return res.status(403).json({ error: 'Invalid token' });
+    }
+
+    const amount = parseFloat(payload.amount) || 0;
+    if (amount <= 0) return res.status(200).json({ ok: true }); // ignore zero amounts
+
+    logDonation({
+      kofi_tx_id: payload.kofi_transaction_id,
+      from_name: payload.from_name,
+      amount,
+      currency: payload.currency || 'GBP',
+      message: payload.message,
+      type: payload.type, // Donation, Subscription, Shop Order
+      tier_name: payload.tier_name,
+      is_subscription: payload.is_subscription_payment,
+      email: payload.email,
+    });
+
+    console.log(`[kofi] ${payload.type}: £${amount} from ${payload.from_name}${payload.tier_name ? ` (${payload.tier_name})` : ''}`);
+    res.status(200).json({ ok: true });
+  } catch (err) {
+    console.error('[kofi] Webhook error:', err.message);
+    res.status(400).json({ error: 'Bad payload' });
+  }
+});
+
+// Recent donations (public — no emails)
+app.get('/api/donations', (req, res) => {
+  res.json(getRecentDonations(20));
 });
 
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, time: new Date().toISOString() });
+});
+
+// Live cost tracker
+// Droplet: $48/mo, Domain: ~$1/mo, Groq: estimated from token usage
+const LAUNCH_DATE = new Date('2026-03-19T00:00:00Z'); // station launch
+const FIXED_MONTHLY = 48 + 1; // droplet + domain amortised
+const GROQ_INPUT_PER_M = 0.59;
+const GROQ_OUTPUT_PER_M = 0.79;
+
+app.get('/api/costs', (req, res) => {
+  const now = new Date();
+  const uptimeMs = now - LAUNCH_DATE;
+  const uptimeDays = uptimeMs / (1000 * 60 * 60 * 24);
+  const uptimeMonths = uptimeDays / 30.44;
+
+  // Fixed infra cost accrued so far
+  const infraCost = uptimeMonths * FIXED_MONTHLY;
+
+  // Estimate Groq cost from broadcast history count (rough: ~1100 tokens per segment)
+  const totalSegments = getProvenanceCount();
+  const estInputTokens = totalSegments * 800;
+  const estOutputTokens = totalSegments * 300;
+  const groqCost = (estInputTokens / 1_000_000) * GROQ_INPUT_PER_M
+                 + (estOutputTokens / 1_000_000) * GROQ_OUTPUT_PER_M;
+
+  const totalCost = infraCost + groqCost;
+
+  // Donations — pulled live from DB (fed by Ko-fi webhook)
+  const donations = getTotalDonations();
+
+  res.json({
+    totalCost: Math.round(totalCost * 100) / 100,
+    infraCost: Math.round(infraCost * 100) / 100,
+    groqCost: Math.round(groqCost * 100) / 100,
+    donations,
+    deficit: Math.round((totalCost - donations) * 100) / 100,
+    uptimeDays: Math.round(uptimeDays * 10) / 10,
+    totalSegments,
+    launchDate: LAUNCH_DATE.toISOString(),
+  });
 });
 
 export function startServer() {

@@ -26,6 +26,7 @@ import { startArchiveWorker, getArchiveTrack, archivePoolSize } from './archiveM
 import { generateTrackIntro, generateTrackOutro } from './trackIntro.js';
 import { generateGuestSegment } from './guest.js';
 import { generateNewsBulletin } from './news.js';
+import { generateWeatherForecast } from './weather.js';
 import { initFoleyPool, startBedWorker } from './studioFx.js';
 
 const POLL_INTERVAL_MS = 4000;
@@ -283,7 +284,17 @@ async function produceNewsBulletin() {
     const bulletin = await generateNewsBulletin(current);
     queue.push(bulletin);
     lastNewsHour = new Date().getHours();
+    lastTalkTime = Date.now();
     console.log(`[producer] News bulletin queued: ${bulletin.title}`);
+
+    // Follow news with weather forecast
+    try {
+      const weather = await generateWeatherForecast();
+      queue.push(weather);
+      console.log(`[producer] Weather queued: ${weather.title}`);
+    } catch (err) {
+      console.error('[producer] Weather failed:', err.message);
+    }
   } catch (err) {
     console.error('[producer] News failed:', err.message);
   }
@@ -325,10 +336,10 @@ async function loop() {
       djSegmentCount = 0;
     }
 
-    // Hourly news bulletin — fires within first 2 minutes of each hour
+    // Hourly news bulletin — fires within first 5 minutes of each hour
     const currentHour = new Date().getHours();
     const currentMinute = new Date().getMinutes();
-    if (currentMinute < 2 && currentHour !== lastNewsHour) {
+    if (currentMinute < 5 && currentHour !== lastNewsHour) {
       console.log(`[producer] Scheduling ${currentHour}:00 news bulletin`);
       produceNewsBulletin().catch(() => {});
     }
@@ -363,34 +374,45 @@ async function loop() {
       console.log(`[producer] Talk overdue (${Math.round((Date.now() - lastTalkTime) / 60000)}min since last) — forcing DJ/guest segment`);
     }
 
-    if (!talkOverdue && (djSegmentCount >= slot.djPerMusic || !wantsTalk)) {
-      // Time for music
-      console.log(`[producer] ${slot.name}: music (${slot.musicDuration}s) [talk ratio: ${(currentRatio * 100).toFixed(0)}%/${(slot.talkRatio * 100).toFixed(0)}%]`);
-      await produceMusicSegment(slot);
+    try {
+      if (!talkOverdue && (djSegmentCount >= slot.djPerMusic || !wantsTalk)) {
+        // Time for music
+        console.log(`[producer] ${slot.name}: music (${slot.musicDuration}s) [talk ratio: ${(currentRatio * 100).toFixed(0)}%/${(slot.talkRatio * 100).toFixed(0)}%]`);
+        await produceMusicSegment(slot);
 
-      // Insert advert after music every advertFrequency cycles
-      if (slot.advertFrequency > 0 && cycleCount % slot.advertFrequency === 0) {
-        console.log(`[producer] ${slot.name}: advert break (${slot.advertHumor})`);
-        await produceAdvert(slot);
-      }
-    } else {
-      // Every guestFrequency cycles, swap one DJ segment for a guest interview
-      const doGuest = slot.guestFrequency > 0
-        && cycleCount > 0
-        && cycleCount % slot.guestFrequency === 0
-        && djSegmentCount === 0; // only at the start of a DJ run
-
-      if (doGuest) {
-        await produceGuestSegment(slot);
-        djSegmentCount++; // counts as one DJ slot
+        // Insert advert after music every advertFrequency cycles
+        if (slot.advertFrequency > 0 && cycleCount % slot.advertFrequency === 0) {
+          console.log(`[producer] ${slot.name}: advert break (${slot.advertHumor})`);
+          await produceAdvert(slot);
+        }
       } else {
-        console.log(`[producer] ${slot.name}: DJ ${djSegmentCount + 1}/${slot.djPerMusic} [talk ratio: ${(currentRatio * 100).toFixed(0)}%/${(slot.talkRatio * 100).toFixed(0)}%]`);
-        await produceDJSegment(slot);
+        // Every guestFrequency cycles, swap one DJ segment for a guest interview
+        const doGuest = slot.guestFrequency > 0
+          && cycleCount > 0
+          && cycleCount % slot.guestFrequency === 0
+          && djSegmentCount === 0; // only at the start of a DJ run
+
+        if (doGuest) {
+          await produceGuestSegment(slot);
+          djSegmentCount++; // counts as one DJ slot
+        } else {
+          console.log(`[producer] ${slot.name}: DJ ${djSegmentCount + 1}/${slot.djPerMusic} [talk ratio: ${(currentRatio * 100).toFixed(0)}%/${(slot.talkRatio * 100).toFixed(0)}%]`);
+          await produceDJSegment(slot);
+        }
       }
+    } catch (err) {
+      console.error(`[producer] Content generation failed (will retry next cycle): ${err.message}`);
+      // Wait a bit before retrying to avoid tight error loops
+      await new Promise(r => setTimeout(r, 15_000));
     }
   }
 }
 
 export function startProducer() {
-  loop().catch(err => console.error('[producer] Loop crashed:', err));
+  loop().catch(err => {
+    console.error('[producer] Loop crashed:', err);
+    // Auto-restart after 30s
+    console.log('[producer] Restarting in 30s...');
+    setTimeout(() => startProducer(), 30_000);
+  });
 }

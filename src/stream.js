@@ -100,6 +100,44 @@ async function getAudioDurationMs(filePath) {
   }
 }
 
+// Crossfade: mix a voice file over the tail of a music file.
+// The music fades out over the last `overlapS` seconds while the voice fades in.
+// Returns the path to the merged file.
+async function crossfadeMusicVoice(musicPath, voicePath, overlapS = 4) {
+  const musicDurMs = await getAudioDurationMs(musicPath);
+  const voiceDurMs = await getAudioDurationMs(voicePath);
+  if (!musicDurMs || !voiceDurMs) return null;
+
+  const musicDurS = musicDurMs / 1000;
+  const voiceDurS = voiceDurMs / 1000;
+  const actualOverlap = Math.min(overlapS, musicDurS * 0.3, voiceDurS); // don't overlap more than 30% of track or full voice
+
+  // Voice starts at (musicDur - overlap), music fades out over that period
+  const voiceStartS = musicDurS - actualOverlap;
+  const fadeStartS = Math.max(0, musicDurS - actualOverlap - 1); // start fade 1s before voice
+
+  const outPath = musicPath.replace(/\.mp3$/, '-xfade.mp3');
+  try {
+    await execFileAsync('ffmpeg', [
+      '-i', musicPath,
+      '-i', voicePath,
+      '-filter_complex',
+      // Music: fade out starting just before the voice comes in
+      `[0:a]afade=t=out:st=${fadeStartS}:d=${actualOverlap + 1}[music];` +
+      // Voice: delay to start at the overlap point, with fade-in
+      `[1:a]adelay=${Math.round(voiceStartS * 1000)}|${Math.round(voiceStartS * 1000)},afade=t=in:d=0.3[voice];` +
+      // Mix together
+      `[music][voice]amix=inputs=2:duration=longest:dropout_transition=1[out]`,
+      '-map', '[out]',
+      '-c:a', 'libmp3lame', '-ab', '128k', '-ar', '44100', '-y', outPath,
+    ], { timeout: 30000 });
+    return outPath;
+  } catch (err) {
+    console.warn(`[stream] Crossfade failed: ${err.message}`);
+    return null;
+  }
+}
+
 // Pipe one file into FFmpeg's stdin without closing it.
 // Does NOT wait for playback duration — caller handles timing.
 function pipeFile(filePath, stdin) {
@@ -170,6 +208,9 @@ async function pipeSegment(segment, stdin) {
     }
   }
 
+  // Re-measure duration after processing (ffmpeg can slightly change it)
+  const finalDurationMs = await getAudioDurationMs(segment.path) ?? durationMs;
+
   const pipeStart = Date.now();
   await pipeFile(segment.path, stdin);
 
@@ -177,10 +218,17 @@ async function pipeSegment(segment, stdin) {
   if (segment.path.startsWith(join(ROOT, 'tmp', 'audio'))) {
     await unlink(segment.path).catch(() => {});
   }
+  // Also clean up -proc files
+  if (segment.path.endsWith('-proc.mp3')) {
+    await unlink(segment.path).catch(() => {});
+  }
 
-  // Wait for playback to complete before advancing
+  // Wait for playback to complete before advancing.
+  // Add 300ms safety buffer — FFmpeg's -re flag plays in real time but
+  // the pipe completes nearly instantly, so we must wait the full duration
+  // plus a small margin to prevent the tail of speech being cut off.
   const elapsed = Date.now() - pipeStart;
-  const remaining = durationMs - elapsed;
+  const remaining = finalDurationMs - elapsed + 100; // 100ms safety buffer (tight)
   if (remaining > 50) {
     await new Promise(r => setTimeout(r, remaining));
   }
@@ -193,7 +241,7 @@ async function pipeSilence(stdin) {
     return;
   }
   await pipeFile(SILENCE_PATH, stdin);
-  await new Promise(r => setTimeout(r, 2000)); // silence is 2s — wait it out
+  await new Promise(r => setTimeout(r, 1000)); // silence is 2s but only wait 1s to keep checking queue
 }
 
 function startFFmpeg() {
@@ -271,7 +319,7 @@ async function runLoop() {
         if (existsSync(jingle.path)) {
           if (showChanged) console.log(`[stream] Show transition → ${slot.name} — playing ${jingle.title}`);
           else console.log(`[stream] Periodic: ${jingle.title}`);
-          logBroadcast({ type: 'jingle', title: jingle.title, slot: slot.id });
+          logBroadcast({ type: 'jingle', title: jingle.title, slot: slot.id, generator: 'pre-produced', source: 'ai-generated-jingle' });
           try {
             await pipeSegment({ ...jingle, type: 'jingle' }, ffmpegProc.stdin);
           } catch (err) {
@@ -288,7 +336,7 @@ async function runLoop() {
       if (DAYTIME_HOURS.has(hour) && Date.now() - lastAiMusicJingleTime >= AIMUSIC_JINGLE_INTERVAL_MS && ffmpegProc) {
         if (existsSync(JINGLE_AIMUSIC.path)) {
           console.log(`[stream] Hourly: ${JINGLE_AIMUSIC.title}`);
-          logBroadcast({ type: 'jingle', title: JINGLE_AIMUSIC.title, slot: getCurrentSlot().id });
+          logBroadcast({ type: 'jingle', title: JINGLE_AIMUSIC.title, slot: getCurrentSlot().id, generator: 'pre-produced', source: 'ai-generated-jingle' });
           try {
             await pipeSegment({ ...JINGLE_AIMUSIC, type: 'jingle' }, ffmpegProc.stdin);
           } catch (err) {
@@ -306,7 +354,7 @@ async function runLoop() {
         console.log(`[stream] Playing shoutout (${shoutout.length} parts)`);
         for (const part of shoutout) {
           if (!ffmpegProc) break;
-          logBroadcast({ type: 'shoutout', title: part.title, slot: part.slot });
+          logBroadcast({ type: 'shoutout', title: part.title, slot: part.slot, generator: 'groq+edge-tts', model: 'llama-3.3-70b-versatile', voice: part.voice });
           try {
             await pipeSegment(part, ffmpegProc.stdin);
           } catch (err) {
@@ -321,7 +369,28 @@ async function runLoop() {
     if (queue.length > 0) {
       const segment = queue.shift();
       const isAdvert = segment.type === 'advert' || (segment.title || '').toLowerCase().includes('decent');
-      logBroadcast({ type: segment.type, title: segment.title, slot: segment.slot });
+
+      // Crossfade: if this is a music segment and the next queued item is DJ/talk,
+      // merge the voice over the music tail for seamless radio flow
+      if (segment.type === 'music' && queue.length > 0 && queue.items[0]?.type === 'dj') {
+        const nextDJ = queue.shift();
+        const merged = await crossfadeMusicVoice(segment.path, nextDJ.path, 5);
+        if (merged && existsSync(merged)) {
+          logBroadcast({ type: 'music', title: segment.title, slot: segment.slot, generator: segment.generator || 'groq+edge-tts', model: segment.model || 'llama-3.3-70b-versatile', voice: segment.voice, source: segment.source || 'ai-generated' });
+          logBroadcast({ type: 'dj', title: nextDJ.title, slot: nextDJ.slot, generator: 'groq+edge-tts', model: 'llama-3.3-70b-versatile', voice: nextDJ.voice });
+          try {
+            if (ffmpegProc) await pipeSegment({ path: merged, type: 'music', title: `${segment.title} → ${nextDJ.title}` }, ffmpegProc.stdin);
+            await unlink(merged).catch(() => {});
+          } catch (err) {
+            console.error('[stream] Queue crossfade failed:', err.message);
+          }
+          continue;
+        }
+        // Crossfade failed — put DJ segment back and play separately
+        queue.items.unshift(nextDJ);
+      }
+
+      logBroadcast({ type: segment.type, title: segment.title, slot: segment.slot, generator: segment.generator || 'groq+edge-tts', model: segment.model || 'llama-3.3-70b-versatile', voice: segment.voice, source: segment.source || 'ai-generated' });
       try {
         if (!ffmpegProc) continue; // FFmpeg died between check and pipe
         await pipeSegment(segment, ffmpegProc.stdin);
@@ -342,40 +411,30 @@ async function runLoop() {
         const slot = getCurrentSlot();
         const trackInfo = { title: track.title, creator: track.creator, mood: slot.musicMood || '' };
 
-        // Back-announce previous archive track if we have one
+        // Generate the outro (back-announce) for the previous track and
+        // the intro for the upcoming track BEFORE playing — we'll try to
+        // crossfade them over the music.
+        let outroPath = null;
+        let outroTitle = null;
         if (lastFallbackTrack) {
           try {
             const outro = await generateTrackOutro(slot, lastFallbackTrack);
             if (outro.path && existsSync(outro.path)) {
-              logBroadcast({ type: 'dj', title: outro.title, slot: slot.id });
-              if (ffmpegProc) await pipeSegment({ ...outro, type: 'dj' }, ffmpegProc.stdin);
+              outroPath = outro.path;
+              outroTitle = outro.title;
             }
           } catch (err) {
             console.warn(`[stream] Fallback outro failed: ${err.message}`);
           }
         }
 
-        // Every 3rd archive track, drop in a catalog advert
-        fallbackTrackCount++;
-        if (fallbackTrackCount % 3 === 0 && catalogSize() > 0) {
-          const ad = getFromCatalog(slot.advertHumor);
-          if (ad && existsSync(ad.path)) {
-            console.log(`[stream] Fallback ad break: ${ad.title}`);
-            logBroadcast({ type: 'advert', title: ad.title, slot: slot.id });
-            try {
-              if (ffmpegProc) await pipeSegment({ ...ad, type: 'advert' }, ffmpegProc.stdin);
-            } catch (err) {
-              console.error('[stream] Fallback ad failed:', err.message);
-            }
-          }
-        }
-
-        // Track intro
+        let introPath = null;
+        let introTitle = null;
         try {
           const intro = await generateTrackIntro(slot, trackInfo);
           if (intro.path && existsSync(intro.path)) {
-            logBroadcast({ type: 'dj', title: intro.title, slot: slot.id });
-            if (ffmpegProc) await pipeSegment({ ...intro, type: 'dj' }, ffmpegProc.stdin);
+            introPath = intro.path;
+            introTitle = intro.title;
           }
         } catch (err) {
           // Minimal fallback intro via TTS
@@ -384,18 +443,64 @@ async function runLoop() {
               ? `Something fresh for you on radioGAGA.`
               : `This is ${track.title} by ${track.creator}.`;
             const { path } = await textToMp3(line, slot.voice);
-            if (ffmpegProc) await pipeSegment({ path, type: 'dj', title: `Quick intro — ${track.title}` }, ffmpegProc.stdin);
+            introPath = path;
+            introTitle = `Quick intro — ${track.title}`;
           } catch {}
           console.warn(`[stream] Fallback intro failed: ${err.message}`);
         }
 
-        // The actual track
-        console.log(`[stream] Archive fill: ${track.title}`);
-        logBroadcast({ type: 'music', title: track.title, slot: slot.id });
-        try {
-          if (ffmpegProc) await pipeSegment({ ...track, type: 'music' }, ffmpegProc.stdin);
-        } catch (err) {
-          console.error('[stream] Archive fill failed:', err.message);
+        // Every 3rd archive track, drop in a catalog advert
+        fallbackTrackCount++;
+        if (fallbackTrackCount % 3 === 0 && catalogSize() > 0) {
+          const ad = getFromCatalog(slot.advertHumor);
+          if (ad && existsSync(ad.path)) {
+            console.log(`[stream] Fallback ad break: ${ad.title}`);
+            logBroadcast({ type: 'advert', title: ad.title, slot: slot.id, generator: 'groq+edge-tts', model: 'llama-3.3-70b-versatile', source: 'ai-generated-advert' });
+            try {
+              if (ffmpegProc) await pipeSegment({ ...ad, type: 'advert' }, ffmpegProc.stdin);
+            } catch (err) {
+              console.error('[stream] Fallback ad failed:', err.message);
+            }
+          }
+        }
+
+        // Try to crossfade the outro voice over the end of the music track
+        // If crossfade works, play the merged file; otherwise play separately
+        let crossfadedPath = null;
+        if (outroPath) {
+          crossfadedPath = await crossfadeMusicVoice(track.path, outroPath, 5);
+        }
+
+        if (crossfadedPath && existsSync(crossfadedPath)) {
+          // Play music+outro as one merged file
+          console.log(`[stream] Archive fill (with voice-over): ${track.title}`);
+          logBroadcast({ type: 'dj', title: outroTitle, slot: slot.id, generator: 'groq+edge-tts', model: 'llama-3.3-70b-versatile', voice: slot.voice });
+          logBroadcast({ type: 'music', title: track.title, slot: slot.id, generator: 'ai-composed', source: track.source || 'cc-licensed-ai-music', model: track.model || null });
+          try {
+            if (ffmpegProc) await pipeSegment({ path: crossfadedPath, type: 'music', title: track.title }, ffmpegProc.stdin);
+            await unlink(crossfadedPath).catch(() => {});
+          } catch (err) {
+            console.error('[stream] Crossfade playback failed:', err.message);
+          }
+        } else {
+          // Fallback: play outro then music separately
+          if (outroPath) {
+            logBroadcast({ type: 'dj', title: outroTitle, slot: slot.id, generator: 'groq+edge-tts', model: 'llama-3.3-70b-versatile', voice: slot.voice });
+            if (ffmpegProc) await pipeSegment({ path: outroPath, type: 'dj', title: outroTitle }, ffmpegProc.stdin);
+          }
+          console.log(`[stream] Archive fill: ${track.title}`);
+          logBroadcast({ type: 'music', title: track.title, slot: slot.id, generator: 'ai-composed', source: track.source || 'cc-licensed-ai-music', model: track.model || null });
+          try {
+            if (ffmpegProc) await pipeSegment({ ...track, type: 'music' }, ffmpegProc.stdin);
+          } catch (err) {
+            console.error('[stream] Archive fill failed:', err.message);
+          }
+        }
+
+        // Play intro for the next track (this sits between tracks)
+        if (introPath) {
+          logBroadcast({ type: 'dj', title: introTitle, slot: slot.id, generator: 'groq+edge-tts', model: 'llama-3.3-70b-versatile', voice: slot.voice });
+          if (ffmpegProc) await pipeSegment({ path: introPath, type: 'dj', title: introTitle }, ffmpegProc.stdin);
         }
         lastFallbackTrack = trackInfo;
         continue;
@@ -407,7 +512,7 @@ async function runLoop() {
       const filler = getFromCatalog();
       if (filler && existsSync(filler.path)) {
         console.log(`[stream] Gap-fill from catalog: ${filler.title}`);
-        logBroadcast({ type: 'advert', title: filler.title, slot: null });
+        logBroadcast({ type: 'advert', title: filler.title, slot: null, generator: 'groq+edge-tts', source: 'ai-generated-advert' });
         try {
           await pipeSegment(
             { ...filler, type: 'advert' },

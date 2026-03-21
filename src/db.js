@@ -76,11 +76,59 @@ db.exec(`
   );
 
   CREATE TABLE IF NOT EXISTS broadcast_history (
-    id        INTEGER PRIMARY KEY AUTOINCREMENT,
-    type      TEXT    NOT NULL,
-    title     TEXT,
-    slot      TEXT,
-    played_at TEXT    DEFAULT (datetime('now'))
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    type          TEXT    NOT NULL,
+    title         TEXT,
+    slot          TEXT,
+    generator     TEXT,
+    model         TEXT,
+    voice         TEXT,
+    source        TEXT,
+    prompt_hash   TEXT,
+    duration_ms   INTEGER,
+    played_at     TEXT    DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS show_ideas (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    show_name     TEXT    NOT NULL,
+    presenter_name TEXT   NOT NULL,
+    presenter_style TEXT  NOT NULL,
+    music_mood    TEXT    NOT NULL,
+    energy        INTEGER DEFAULT 3,
+    humor         TEXT    DEFAULT 'light',
+    time_slot     TEXT,
+    submitter_name TEXT,
+    submitter_email TEXT,
+    status        TEXT    DEFAULT 'pending',
+    created_at    TEXT    DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS donations (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    kofi_tx_id      TEXT    UNIQUE,
+    from_name       TEXT,
+    amount          REAL    NOT NULL,
+    currency        TEXT    DEFAULT 'GBP',
+    message         TEXT,
+    type            TEXT,
+    tier_name       TEXT,
+    is_subscription INTEGER DEFAULT 0,
+    email           TEXT,
+    created_at      TEXT    DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS listener_adverts (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    business_name   TEXT    NOT NULL,
+    product         TEXT    NOT NULL,
+    description     TEXT    NOT NULL,
+    tone            TEXT    DEFAULT 'casual',
+    target_audience TEXT,
+    website         TEXT,
+    submitter_name  TEXT,
+    status          TEXT    DEFAULT 'pending',
+    created_at      TEXT    DEFAULT (datetime('now'))
   );
 `);
 
@@ -218,11 +266,31 @@ export function markOverrideUsed(id) {
   db.prepare('UPDATE song_queue_overrides SET used = 1 WHERE id = ?').run(id);
 }
 
+// ── Donations ────────────────────────────────────────────────────────────────
+
+export function logDonation({ kofi_tx_id, from_name, amount, currency, message, type, tier_name, is_subscription, email }) {
+  return db.prepare(`INSERT OR IGNORE INTO donations (kofi_tx_id, from_name, amount, currency, message, type, tier_name, is_subscription, email)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(kofi_tx_id, from_name || 'Anonymous', amount, currency || 'GBP', message || null,
+         type || null, tier_name || null, is_subscription ? 1 : 0, email || null);
+}
+
+export function getTotalDonations() {
+  const row = db.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM donations').get();
+  return row.total;
+}
+
+export function getRecentDonations(limit = 10) {
+  return db.prepare('SELECT from_name, amount, currency, message, tier_name, created_at FROM donations ORDER BY created_at DESC LIMIT ?').all(limit);
+}
+
 // ── Broadcast history ────────────────────────────────────────────────────────
 
-export function logBroadcast({ type, title, slot }) {
-  db.prepare(`INSERT INTO broadcast_history (type, title, slot) VALUES (?, ?, ?)`)
-    .run(type, title || null, slot || null);
+export function logBroadcast({ type, title, slot, generator, model, voice, source, prompt_hash, duration_ms }) {
+  db.prepare(`INSERT INTO broadcast_history (type, title, slot, generator, model, voice, source, prompt_hash, duration_ms)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(type, title || null, slot || null, generator || null, model || null,
+         voice || null, source || null, prompt_hash || null, duration_ms || null);
 }
 
 export function getBroadcastHistory(limit = 30) {
@@ -231,6 +299,18 @@ export function getBroadcastHistory(limit = 30) {
     FROM broadcast_history
     ORDER BY played_at DESC LIMIT ?
   `).all(limit);
+}
+
+export function getProvenanceLog(limit = 100, offset = 0) {
+  return db.prepare(`
+    SELECT id, type, title, slot, generator, model, voice, source, prompt_hash, duration_ms, played_at
+    FROM broadcast_history
+    ORDER BY played_at DESC LIMIT ? OFFSET ?
+  `).all(limit, offset);
+}
+
+export function getProvenanceCount() {
+  return db.prepare('SELECT COUNT(*) as total FROM broadcast_history').get().total;
 }
 
 // ── Stats ───────────────────────────────────────────────────────────────────
@@ -242,6 +322,32 @@ export function getStats() {
     competitions: db.prepare('SELECT COUNT(*) as n FROM competitions').get().n,
     entries:      db.prepare('SELECT COUNT(*) as n FROM entries').get().n,
   };
+}
+
+// ── Show ideas ──────────────────────────────────────────────────────────────
+
+export function submitShowIdea({ show_name, presenter_name, presenter_style, music_mood, energy, humor, time_slot, submitter_name, submitter_email }) {
+  return db.prepare(`
+    INSERT INTO show_ideas (show_name, presenter_name, presenter_style, music_mood, energy, humor, time_slot, submitter_name, submitter_email)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(show_name, presenter_name, presenter_style, music_mood, energy || 3, humor || 'light', time_slot || null, submitter_name || null, submitter_email || null);
+}
+
+export function getShowIdeas(status = 'pending') {
+  return db.prepare('SELECT * FROM show_ideas WHERE status = ? ORDER BY created_at DESC').all(status);
+}
+
+// ── Listener adverts ────────────────────────────────────────────────────────
+
+export function submitAdvert({ business_name, product, description, tone, target_audience, website, submitter_name }) {
+  return db.prepare(`
+    INSERT INTO listener_adverts (business_name, product, description, tone, target_audience, website, submitter_name)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(business_name, product, description, tone || 'casual', target_audience || null, website || null, submitter_name || null);
+}
+
+export function getAdverts(status = 'pending') {
+  return db.prepare('SELECT * FROM listener_adverts WHERE status = ? ORDER BY created_at DESC').all(status);
 }
 
 export default db;

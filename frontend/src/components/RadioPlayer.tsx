@@ -20,6 +20,7 @@ const SEGMENT_LABELS: Record<string, string> = {
   music: "MUSIC",
   advert: "AD BREAK",
   news: "NEWS",
+  weather: "WEATHER",
   guest: "GUEST",
   "track-intro": "MUSIC",
   "track-outro": "MUSIC",
@@ -52,7 +53,7 @@ function useShows() {
 
 export default function RadioPlayer() {
   const { t } = useLanguage();
-  const { playing, togglePlay, volume, setVolume, analyserRef, streamConnected } = useAudio();
+  const { playing, togglePlay, volume, setVolume, analyserRef, streamConnected, muted } = useAudio();
   const { shows, currentShow, skipTo, nowPlaying } = useShows();
   const currentShowObj = shows.find(s => s.id === currentShow);
   const [showPicker, setShowPicker] = useState(false);
@@ -169,17 +170,23 @@ export default function RadioPlayer() {
         <div className="flex items-center gap-4">
         <button
           onClick={togglePlay}
-          className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 transition-all duration-300 active:scale-95"
+          className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 transition-all duration-300 active:scale-95 ${muted && playing ? "animate-pulse" : ""}`}
           style={{
-            background: playing ? "hsla(35, 80%, 65%, 0.2)" : "hsla(35, 80%, 65%, 0.1)",
-            boxShadow: playing ? "0 0 20px hsla(35, 80%, 65%, 0.2)" : "none",
+            background: playing && !muted ? "hsla(35, 80%, 65%, 0.2)" : muted && playing ? "hsla(35, 80%, 65%, 0.15)" : "hsla(35, 80%, 65%, 0.1)",
+            boxShadow: playing && !muted ? "0 0 20px hsla(35, 80%, 65%, 0.2)" : muted && playing ? "0 0 15px hsla(35, 80%, 65%, 0.15)" : "none",
           }}
-          aria-label={playing ? "Pause" : "Play"}
+          aria-label={playing && !muted ? "Pause" : muted ? "Unmute" : "Play"}
         >
-          {playing ? (
+          {playing && !muted ? (
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
               <rect x="2" y="1" width="3.5" height="12" rx="1" fill="hsl(35, 80%, 65%)" />
               <rect x="8.5" y="1" width="3.5" height="12" rx="1" fill="hsl(35, 80%, 65%)" />
+            </svg>
+          ) : muted && playing ? (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="hsl(35, 80%, 65%)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="hsl(35, 80%, 65%)" />
+              <line x1="23" y1="9" x2="17" y2="15" />
+              <line x1="17" y1="9" x2="23" y2="15" />
             </svg>
           ) : (
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -205,7 +212,7 @@ export default function RadioPlayer() {
           <span className="flex items-center gap-1.5">
             <span className={`w-1.5 h-1.5 rounded-full ${streamConnected ? "bg-red-500 animate-pulse" : "bg-foreground/20"}`} />
             <span className="font-mono text-[10px] tracking-widest uppercase text-foreground/70">
-              {streamConnected ? t("player.live") : playing ? "connecting" : "off air"}
+              {streamConnected && !muted ? t("player.live") : streamConnected && muted ? "tap to listen" : playing ? "connecting" : "off air"}
             </span>
           </span>
           <button

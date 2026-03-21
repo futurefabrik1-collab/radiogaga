@@ -5,6 +5,23 @@ import { ollama } from './ollama.js';
 import { textToMp3 } from './tts.js';
 import { generateMusic } from './music.js';
 
+// Advert voice pool — distinct from presenter voices for clear separation.
+const AD_VOICES = [
+  'en-US-AndrewMultilingualNeural',
+  'en-US-AvaMultilingualNeural',
+  'en-US-BrianMultilingualNeural',
+  'en-GB-SoniaNeural',
+  'en-AU-WilliamNeural',
+  'en-IE-ConnorNeural',
+  'en-GB-RyanNeural',
+];
+
+// Pick a voice that is NOT the current presenter's voice.
+function pickAdVoice(presenterVoice) {
+  const options = AD_VOICES.filter(v => v !== presenterVoice);
+  return options[Math.floor(Math.random() * options.length)];
+}
+
 // Fictional product categories to rotate through
 const PRODUCT_CATEGORIES = [
   'household appliance', 'personal hygiene product', 'food supplement',
@@ -112,7 +129,7 @@ export async function generateDecentAdvert(slot) {
   const script = response.response.trim();
   console.log(`[advert] Decent spot: "${script.slice(0, 80)}..."`);
 
-  const voice = slot?.voice || 'en-GB-RyanNeural';
+  const voice = pickAdVoice(slot?.voice);
   const { path: voicePath } = await textToMp3(script, voice);
 
   return {
@@ -160,8 +177,8 @@ export async function generateAdvert(slot) {
   const script = response.response.trim();
   console.log(`[advert] Script: "${script.slice(0, 80)}..."`);
 
-  // TTS with the show's presenter voice (ads use same voice, slightly faster)
-  const voice = slot?.voice || 'en-GB-RyanNeural';
+  // TTS with a different voice from the current presenter
+  const voice = pickAdVoice(slot?.voice);
   const { path: voicePath } = await textToMp3(script, voice);
 
   // Music bed mixing — layer voice over a studio bed for ad shows that want it

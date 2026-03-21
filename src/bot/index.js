@@ -44,6 +44,25 @@ const MAX_VOICE_DURATION_S = 30; // cap voice messages at 30s
 export const shoutoutQueue = [];
 export function getNextShoutout() { return shoutoutQueue.shift() || null; }
 
+// Queue a shoutout from the website (text only, no voice)
+export async function queueWebShoutout(name, message) {
+  const location = IMAGINARY_LOCATIONS[Math.floor(Math.random() * IMAGINARY_LOCATIONS.length)];
+  try {
+    const intro = await generateShoutoutIntro(name, location, false);
+    const { textToMp3 } = await import('../content/tts.js');
+    const { path: introPath } = await textToMp3(intro.text, intro.voice, { energy: intro.energy });
+    const { path: msgPath } = await textToMp3(message, intro.voice, { energy: intro.energy });
+    const slot = getCurrentSlot();
+    shoutoutQueue.push([
+      { path: introPath, type: 'shoutout', title: `Shoutout intro — ${name}`, slot: slot.id },
+      { path: msgPath, type: 'shoutout', title: `Web shoutout — ${name}`, slot: slot.id },
+    ]);
+    console.log(`[bot] Web shoutout queued from ${name}`);
+  } catch (err) {
+    console.error('[bot] Web shoutout failed:', err.message);
+  }
+}
+
 const IMAGINARY_LOCATIONS = [
   'the dark side of the moon', 'a submarine somewhere in the Atlantic',
   'a yurt in the Mongolian steppe', 'a treehouse in the Amazon',
@@ -161,7 +180,7 @@ export async function startBot() {
       .text('🎵 Now Playing', 'nowplaying')
       .text('🏆 Competition', 'compete').row()
       .url('🔊 Listen Live', 'https://www.radiogaga.ai')
-      .url('☕ Support Us', 'https://ko-fi.com/radiogaga');
+      .url('☕ Support Us', 'https://ko-fi.com/radiogaga/tiers');
 
     await ctx.reply(
       `🎙 *Welcome to ${STATION}!*
@@ -354,10 +373,10 @@ You are listener #${getStats().listeners}. Tune in at radiogaga.ai 📻`,
   // /donate — support the station
   bot.command('donate', async (ctx) => {
     const keyboard = new InlineKeyboard()
-      .url('☕ Buy us a coffee on Ko-fi', 'https://ko-fi.com/radiogaga');
+      .url('☕ Buy us a coffee on Ko-fi', 'https://ko-fi.com/radiogaga/tiers');
 
     await ctx.reply(
-      `❤️ *Support ${STATION}*\n\nradioGAGA runs 24/7 on AI, coffee, and goodwill. Every donation helps keep the transmitter on and the robots caffeinated.\n\n☕ [ko-fi.com/radiogaga](https://ko-fi.com/radiogaga)\n\n_Your name gets a shoutout on air if you include it in the Ko-fi message!_`,
+      `❤️ *Support ${STATION}*\n\nradioGAGA runs 24/7 on AI, coffee, and goodwill. Every donation helps keep the transmitter on and the robots caffeinated.\n\n☕ [ko-fi.com/radiogaga](https://ko-fi.com/radiogaga/tiers)\n\n_Your name gets a shoutout on air if you include it in the Ko-fi message!_`,
       { parse_mode: 'Markdown', reply_markup: keyboard }
     );
   });
