@@ -1,26 +1,29 @@
 // Dialogue renderer — takes a multi-speaker script and produces a single MP3.
 // Script format:  [SPEAKER NAME]: spoken text here
-// Each line is TTS'd with the matching voice, then all clips are concatenated.
+// Each line is TTS'd with the matching voice, then mixed with overlapping
+// speaker transitions for natural conversational flow.
 // Optionally layers a low-volume music bed + foley to mimic a real studio.
 
 import { join } from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { randomUUID } from 'node:crypto';
 import { textToMp3, concatAudioFiles } from './tts.js';
 import { mixStudioBed } from './studioFx.js';
 
+const execFileAsync = promisify(execFile);
+const TMP = () => join(process.cwd(), 'tmp', 'audio');
+
 // Parse dialogue lines. Accepts both [NAME]: and NAME: formats.
-// knownSpeakers limits bare-name matching to prevent false positives.
 function parseDialogue(script, knownSpeakers = []) {
   const lines = [];
-  // Build a pattern for bare NAME: matching (only for known speakers)
   const barePattern = knownSpeakers.length
     ? new RegExp(`^(${knownSpeakers.map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')}):\\s*(.+)`, 'i')
     : null;
 
   for (const raw of script.split('\n')) {
     const trimmed = raw.trim();
-    // Preferred: [NAME]: text
     let match = trimmed.match(/^\[([^\]]+)\]:\s*(.+)/);
-    // Fallback: NAME: text (only for known speakers to avoid false positives)
     if (!match && barePattern) match = trimmed.match(barePattern);
     if (match) {
       lines.push({ speaker: match[1].trim(), text: match[2].trim() });
@@ -29,12 +32,9 @@ function parseDialogue(script, knownSpeakers = []) {
   return lines;
 }
 
-// Strip speaker label prefixes from a line (for monologue fallback cleanup).
 function stripSpeakerPrefix(line, knownSpeakers) {
   let l = line.trim();
-  // Remove [NAME]: prefix
   l = l.replace(/^\[[^\]]+\]:\s*/, '');
-  // Remove NAME: prefix for known speakers
   for (const name of knownSpeakers) {
     const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     l = l.replace(new RegExp(`^${escaped}:\\s*`, 'i'), '');
@@ -42,26 +42,57 @@ function stripSpeakerPrefix(line, knownSpeakers) {
   return l;
 }
 
-// Generate a short silence clip for inter-line pauses.
-async function generatePause(durationS = 0.4) {
-  const { execFile } = await import('child_process');
-  const { promisify } = await import('util');
-  const { randomUUID } = await import('crypto');
-  const exec = promisify(execFile);
-  const pausePath = join(process.cwd(), 'tmp', 'audio', `pause-${randomUUID().slice(0, 8)}.mp3`);
-  await exec('ffmpeg', [
-    '-f', 'lavfi', '-i', `aevalsrc=0:d=${durationS}`,
-    '-c:a', 'libmp3lame', '-ab', '128k', '-ar', '44100',
-    '-y', pausePath,
-  ]);
-  return pausePath;
+// Get duration of an audio file in seconds
+async function getDuration(filePath) {
+  try {
+    const { stdout } = await execFileAsync('ffprobe', [
+      '-v', 'error', '-show_entries', 'format=duration',
+      '-of', 'csv=p=0', filePath,
+    ]);
+    return parseFloat(stdout.trim()) || 0;
+  } catch {
+    return 0;
+  }
 }
 
-// Render a dialogue script to a single MP3.
-// speakers: { [name]: voice } — map of speaker name → edge-tts voice
-// Falls back to presenterVoice for any unrecognised name.
-// opts.studioBed — if true, layer background music + foley under speech.
-// opts.energy    — show energy level (affects foley density and prosody).
+// Mix two audio clips with overlap: clipB starts overlapS before clipA ends.
+// Creates natural "jumping in" conversational feel.
+async function overlapMix(clipA, clipB, overlapS) {
+  const outPath = join(TMP(), `overlap-${randomUUID().slice(0, 8)}.mp3`);
+  const durA = await getDuration(clipA);
+
+  if (durA <= 0 || overlapS <= 0 || overlapS >= durA) {
+    // Can't overlap — just concat
+    return concatAudioFiles([clipA, clipB], true);
+  }
+
+  // clipB starts at (durA - overlapS) seconds
+  // Fade down clipA in the overlap zone, fade up clipB
+  const startB = Math.max(0, durA - overlapS);
+
+  try {
+    await execFileAsync('ffmpeg', [
+      '-i', clipA,
+      '-i', clipB,
+      '-filter_complex', [
+        // Fade out the tail of clip A during overlap
+        `[0:a]afade=t=out:st=${startB}:d=${overlapS}[a]`,
+        // Delay clip B to start at the overlap point, with quick fade-in
+        `[1:a]adelay=${Math.round(startB * 1000)}|${Math.round(startB * 1000)},afade=t=in:d=0.08[b]`,
+        // Mix both together
+        `[a][b]amix=inputs=2:duration=longest:dropout_transition=0.5`,
+      ].join(';'),
+      '-c:a', 'libmp3lame', '-ab', '128k', '-ar', '44100',
+      '-y', outPath,
+    ], { timeout: 30_000 });
+    return outPath;
+  } catch (err) {
+    console.warn('[dialogue] Overlap mix failed, concatenating:', err.message);
+    return concatAudioFiles([clipA, clipB], true);
+  }
+}
+
+// Render a dialogue script to a single MP3 with natural overlapping transitions.
 export async function renderDialogue(script, speakers, fallbackVoice, opts = {}) {
   const knownSpeakers = Object.keys(speakers);
   const lines = parseDialogue(script, knownSpeakers);
@@ -70,7 +101,6 @@ export async function renderDialogue(script, speakers, fallbackVoice, opts = {})
   let speechPath;
 
   if (!lines.length) {
-    // No dialogue found — strip any speaker labels before monologue TTS
     const cleaned = script
       .split('\n')
       .map(l => stripSpeakerPrefix(l, knownSpeakers))
@@ -78,29 +108,51 @@ export async function renderDialogue(script, speakers, fallbackVoice, opts = {})
       .join(' ');
     speechPath = (await textToMp3(cleaned || script, fallbackVoice, { energy })).path;
   } else {
-    const audioPaths = [];
-    let lastSpeaker = null;
+    // Generate all TTS clips first
+    const clips = [];
     for (const { speaker, text } of lines) {
-      // Case-insensitive speaker lookup
       const voiceKey = Object.keys(speakers).find(
         k => k.toLowerCase() === speaker.toLowerCase()
       );
       const voice = voiceKey ? speakers[voiceKey] : fallbackVoice;
-
-      // Insert a micro-pause between lines for natural turn-taking.
-      // Shorter pause for same speaker continuing, longer for speaker change.
-      if (lastSpeaker !== null) {
-        const pauseS = lastSpeaker === speaker
-          ? 0.15 + Math.random() * 0.15   // same speaker: 0.15–0.3s breath
-          : 0.25 + Math.random() * 0.35;  // speaker change: 0.25–0.6s gap
-        audioPaths.push(await generatePause(pauseS));
-      }
-
       const { path } = await textToMp3(text, voice, { energy, jitter: true });
-      audioPaths.push(path);
-      lastSpeaker = speaker;
+      clips.push({ path, speaker });
     }
-    speechPath = audioPaths.length === 1 ? audioPaths[0] : await concatAudioFiles(audioPaths);
+
+    if (clips.length === 1) {
+      speechPath = clips[0].path;
+    } else {
+      // Build the dialogue by overlapping speaker transitions.
+      // Same speaker continuing: tiny gap (breath).
+      // Speaker change: overlap the tail of previous with start of next.
+      let merged = clips[0].path;
+
+      for (let i = 1; i < clips.length; i++) {
+        const prev = clips[i - 1];
+        const curr = clips[i];
+        const sameSpeaker = prev.speaker.toLowerCase() === curr.speaker.toLowerCase();
+
+        if (sameSpeaker) {
+          // Same speaker: small natural breath gap (0.1–0.25s)
+          const pauseS = 0.1 + Math.random() * 0.15;
+          const pausePath = join(TMP(), `pause-${randomUUID().slice(0, 8)}.mp3`);
+          await execFileAsync('ffmpeg', [
+            '-f', 'lavfi', '-i', `aevalsrc=0:d=${pauseS}`,
+            '-c:a', 'libmp3lame', '-ab', '128k', '-ar', '44100',
+            '-y', pausePath,
+          ]);
+          merged = await concatAudioFiles([merged, pausePath, curr.path], true);
+        } else {
+          // Speaker change: overlap 0.15–0.4s (higher energy = more overlap/interruption)
+          const baseOverlap = 0.15 + Math.random() * 0.15;
+          const energyBoost = Math.min(energy * 0.04, 0.15); // higher energy = more overlap
+          const overlapS = baseOverlap + energyBoost;
+
+          merged = await overlapMix(merged, curr.path, overlapS);
+        }
+      }
+      speechPath = merged;
+    }
   }
 
   // Layer studio atmosphere if requested
