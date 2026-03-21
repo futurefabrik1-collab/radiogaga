@@ -8,6 +8,7 @@ import { startServer } from './server.js';
 import { startProducer } from './content/producer.js';
 import { startStream, stopStream } from './stream.js';
 import { startBot } from './bot/index.js';
+import { startClipper } from './clipper.js';
 import db from './db.js';
 
 console.log('🎙 radioGAGA starting...');
@@ -16,6 +17,7 @@ startServer();
 startProducer();
 startStream();
 startBot();
+startClipper();
 
 // Periodic tmp cleanup — remove audio files older than 1 hour
 // Protects the $12 droplet from disk fill. Runs every 30 minutes.

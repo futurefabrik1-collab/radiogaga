@@ -2,6 +2,7 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { AudioProvider } from "@/contexts/AudioContext";
 import Index from "./pages/Index.tsx";
+import Press from "./pages/Press.tsx";
 import NotFound from "./pages/NotFound.tsx";
 
 const App = () => (
@@ -10,6 +11,7 @@ const App = () => (
       <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Routes>
           <Route path="/" element={<Index />} />
+          <Route path="/press" element={<Press />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>

@@ -18,7 +18,7 @@ import { generateMusic } from './music.js';
 import { generateAdvert } from './advert.js';
 import { getCurrentSlot, logSchedule } from '../schedule.js';
 import { queue } from '../queue.js';
-import { getNextSongOverride, markOverrideUsed, getRecentSuggestions } from '../db.js';
+import { getNextSongOverride, markOverrideUsed, getRecentSuggestions, markSuggestionUsed } from '../db.js';
 import { getSubscribers } from '../bot/index.js';
 import { launchCompetition } from '../bot/competitions.js';
 import { startCatalogWorker, getFromCatalog, catalogSize } from './advertCatalog.js';
@@ -131,6 +131,9 @@ async function produceDJSegment(slot) {
   const t0 = Date.now();
   const result = await generateDJSegment(current, slotWithSuggestions);
   const { script, title, headlines: used } = result;
+
+  // Mark suggestions as used so they never repeat
+  for (const s of suggestions) markSuggestionUsed(s.id);
 
   // Dialogue shows return a pre-rendered path (with studio bed already applied);
   // monologue shows need TTS + optional studio bed mixing.

@@ -64,22 +64,18 @@ function pickCategory() {
 
 // ── Decentralisation tech spots ───────────────────────────────────────────────
 
+// Decent tech topics — blockchain DEVELOPMENT news only, NO crypto trading/DeFi/investment
 const DECENT_TOPICS = [
   'IPFS (InterPlanetary File System) and content-addressed storage',
-  'Bitcoin Lightning Network and instant micropayments',
-  'Ethereum smart contracts and programmable money',
   'DAO (Decentralised Autonomous Organisations) governance',
   'Self-sovereign identity and DID (Decentralised Identifiers)',
   'Nostr protocol and censorship-resistant social media',
   'Filecoin and decentralised cloud storage',
-  'Uniswap and automated market makers in DeFi',
   'Zero-knowledge proofs and privacy-preserving computation',
   'The Fediverse: Mastodon, ActivityPub and federated social networks',
-  'Monero and privacy-focused cryptocurrency',
   'Arweave and permanent decentralised data storage',
   'Tor network and onion routing for anonymous communication',
   'BitTorrent and peer-to-peer file distribution',
-  'Ethereum Layer 2 rollups and scaling solutions',
   'Decentralised DNS with Handshake and ENS',
   'Multi-sig wallets and shared key custody',
   'Open-source hardware and RISC-V processors',
@@ -87,14 +83,18 @@ const DECENT_TOPICS = [
   'Secure multi-party computation and threshold cryptography',
   'Homomorphic encryption and computing on encrypted data',
   'Matrix protocol and decentralised encrypted messaging',
-  'Helium network and decentralised wireless infrastructure',
-  'Proof-of-work vs proof-of-stake consensus mechanisms',
-  'Git and distributed version control',
   'Mesh networking and community-owned internet infrastructure',
+  'Git and distributed version control',
   'Hardware security keys and passkeys replacing passwords',
   'Signal protocol and end-to-end encrypted messaging',
-  'Decentralised exchanges vs centralised exchanges',
-  'NFTs beyond hype: verifiable digital ownership on-chain',
+  'Solid protocol and personal data pods (Tim Berners-Lee)',
+  'WebRTC and peer-to-peer real-time communication',
+  'LibreSSL and open-source cryptography libraries',
+  'Ceph and distributed object storage',
+  'WireGuard and modern VPN protocols',
+  'NFTs as verifiable digital ownership — art provenance, event tickets, credentials',
+  'DeFi protocols and decentralised lending/borrowing without intermediaries',
+  'Automated market makers and how liquidity pools work',
 ];
 
 const DECENT_PROMPT = (topic) => `You are writing a 20-second factual radio spot for radioGAGA — an AI radio station.
@@ -103,7 +103,7 @@ Topic: ${topic}
 
 Write an informative, engaging radio spot (45–60 words) that teaches the listener one genuinely useful fact or skill about this topic.
 Tone: clear, curious, slightly enthusiastic — like a knowledgeable friend explaining something interesting, not a corporate press release.
-No hype. No investment advice. Facts only.
+No hype. No investment advice. No crypto trading. No token prices. No DeFi yields. No financial returns. Facts about the TECHNOLOGY only.
 
 Rules:
 - Output ONLY the spoken copy. No stage directions, no labels.

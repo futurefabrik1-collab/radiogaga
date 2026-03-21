@@ -54,6 +54,9 @@ function loadSchedule() {
       advertFrequency: s.adverts?.frequency ?? 4,
       advertHumor:  s.adverts?.humor || s.content?.humor || 'light',
       advertMusicBed: s.adverts?.music_bed ?? false,
+
+      // shoutouts
+      shoutoutCooldownS: s.shoutouts?.cooldown_s ?? 300, // default 5 min
     }));
   } catch (err) {
     console.error('[schedule] Failed to load schedule.yaml:', err.message);

@@ -128,6 +128,26 @@ app.get('/api/history', (req, res) => {
   res.json(getBroadcastHistory(limit));
 });
 
+// Serve clip files
+app.use('/clips', express.static(join(process.cwd(), 'data', 'clips')));
+
+// Recent clips for social media posting
+app.get('/api/clips', (req, res) => {
+  try {
+    const indexPath = join(process.cwd(), 'data', 'clips', 'clips.json');
+    const clips = JSON.parse(require('fs').readFileSync(indexPath, 'utf8'));
+    const limit = Math.min(parseInt(req.query.limit) || 10, 50);
+    res.json(clips.slice(-limit).reverse().map(c => ({
+      id: c.id, type: c.type, title: c.title, caption: c.caption,
+      videoUrl: c.videoPath ? `/clips/clip-${c.id}.mp4` : null,
+      audioUrl: `/clips/clip-${c.id}.mp3`,
+      createdAt: c.createdAt, posted: c.posted,
+    })));
+  } catch {
+    res.json([]);
+  }
+});
+
 // Full provenance log — public proof that all content is AI-generated
 app.get('/api/provenance', (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 100, 1000);

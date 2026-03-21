@@ -17,10 +17,11 @@ import { queue } from './queue.js';
 import { getFromCatalog, catalogSize } from './content/advertCatalog.js';
 import { getArchiveTrack, archivePoolSize } from './content/archiveMusic.js';
 import { logBroadcast } from './db.js';
+import { postNowPlaying } from './discord.js';
 import { getCurrentSlot } from './schedule.js';
 import { generateTrackIntro, generateTrackOutro } from './content/trackIntro.js';
 import { textToMp3 } from './content/tts.js';
-import { getNextShoutout } from './bot/index.js';
+import { getNextShoutout, shoutoutQueue } from './bot/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
@@ -55,7 +56,7 @@ let lastJingleTime = 0;         // timestamp of last jingle played
 let firstJinglePlayed = false;   // play long jingle only on first load
 let lastStreamSlotId = null;    // detect show transitions
 let pendingIntro = null;         // pre-generated intro for next archive track
-const SHOUTOUT_COOLDOWN_MS = 60_000; // max 1 shoutout per minute
+const DEFAULT_SHOUTOUT_COOLDOWN_MS = 5 * 60_000; // 1 shoutout per 5 min (overridable per show)
 
 // Generate a 5-second silence MP3 once at startup.
 async function ensureSilence() {
@@ -164,6 +165,10 @@ async function pipeSegment(segment, stdin) {
   }
 
   console.log(`[stream] >> ${segment.type.toUpperCase()}: ${segment.title}`);
+
+  // Post to Discord (non-blocking)
+  const slot = getCurrentSlot();
+  postNowPlaying(segment, slot.name, slot.presenterName).catch(() => {});
 
   const MAX_MUSIC_MS = 240_000; // 4 min hard cap for music tracks
   const FADE_OUT_S = 4;   // fade-out duration for music tracks
@@ -331,43 +336,92 @@ async function runLoop() {
       }
     }
 
-    // 0b. Priority shoutouts — play between segments, max 1/min, never after adverts/decent
-    if (Date.now() - lastShoutoutTime >= SHOUTOUT_COOLDOWN_MS) {
-      const shoutout = getNextShoutout();
-      if (shoutout) {
-        // Extract the sender's first name from the shoutout title
-        const nameMatch = shoutout[0]?.title?.match(/— (\w+)/);
-        const firstName = nameMatch?.[1] || 'that';
+    // 0b. Shoutouts — single (1 per 5 min) or section mode (3+ queued = rapid fire with intro/outro)
+    {
+    const slot = getCurrentSlot();
+    const cooldown = (slot.shoutoutCooldownS ?? 300) * 1000 || DEFAULT_SHOUTOUT_COOLDOWN_MS;
+    const { ollama: llm } = await import('./content/ollama.js');
+    const { textToMp3 } = await import('./content/tts.js');
+    const queueSize = shoutoutQueue.length;
 
-        console.log(`[stream] Playing shoutout (${shoutout.length} parts)`);
-        for (const part of shoutout) {
-          if (!ffmpegProc) break;
-          logBroadcast({ type: 'shoutout', title: part.title, slot: part.slot, generator: 'openrouter+edge-tts', voice: part.voice });
-          try {
-            await pipeSegment(part, ffmpegProc.stdin);
-          } catch (err) {
-            console.error('[stream] Shoutout pipe failed:', err.message);
+    if (Date.now() - lastShoutoutTime >= cooldown && queueSize > 0) {
+
+      // --- SHOUTOUT SECTION: 3+ pending → play all with intro/outro ---
+      if (queueSize >= 3 && ffmpegProc) {
+        const MAX_SECTION_MS = 5 * 60 * 1000; // 5 min max
+        const sectionStart = Date.now();
+        const names = [];
+
+        // Generate section intro
+        try {
+          const intro = await llm.generate({
+            prompt: `You are ${slot.presenterName} on radioGAGA. You have ${queueSize} shoutouts waiting. Write a 15-25 word excited intro to open the shoutout section. Classic radio energy — "Right, we've got a STACK of shoutouts..." Output ONLY the spoken words:`,
+            options: { temperature: 0.95, num_predict: 50 },
+          });
+          const { path } = await textToMp3(intro.response.trim(), slot.voice, { energy: Math.min(slot.energy + 1, 5) });
+          console.log(`[stream] Shoutout section: ${queueSize} shoutouts, opening...`);
+          await pipeSegment({ path, type: 'dj', title: 'Shoutout section intro' }, ffmpegProc.stdin);
+        } catch {}
+
+        // Play all shoutouts back-to-back (no cooldown, 5 min cap)
+        while (shoutoutQueue.length > 0 && ffmpegProc && Date.now() - sectionStart < MAX_SECTION_MS) {
+          const shoutout = getNextShoutout();
+          if (!shoutout) break;
+          const nameMatch = shoutout[0]?.title?.match(/— (\w+)/);
+          const firstName = nameMatch?.[1] || 'someone';
+          names.push(firstName);
+
+          for (const part of shoutout) {
+            if (!ffmpegProc) break;
+            logBroadcast({ type: 'shoutout', title: part.title, slot: part.slot, generator: 'openrouter+edge-tts', voice: part.voice });
+            try { await pipeSegment(part, ffmpegProc.stdin); } catch {}
           }
         }
 
-        // Generate a short thank-you from the current presenter
+        // Generate section outro
         try {
-          const slot = getCurrentSlot();
-          const { ollama: llm } = await import('./content/ollama.js');
-          const { textToMp3 } = await import('./content/tts.js');
-          const thanks = await llm.generate({
-            prompt: `You are ${slot.presenterName} on radioGAGA. Write a warm 8-15 word thank-you to a listener named ${firstName} who just sent a shoutout. Be genuine, brief, in character. Output ONLY the spoken words:`,
-            options: { temperature: 0.95, num_predict: 40 },
+          const nameList = names.length <= 4 ? names.join(', ') : `${names.slice(0, 3).join(', ')} and ${names.length - 3} more`;
+          const outro = await llm.generate({
+            prompt: `You are ${slot.presenterName} on radioGAGA. You just finished playing ${names.length} shoutouts from: ${nameList}. Write a warm 15-25 word outro wrapping up the shoutout section. Thank them all, tease what's coming next. Output ONLY the spoken words:`,
+            options: { temperature: 0.95, num_predict: 50 },
           });
-          const { path } = await textToMp3(thanks.response.trim(), slot.voice, { energy: slot.energy });
-          if (ffmpegProc) await pipeSegment({ path, type: 'dj', title: `Thanks — ${firstName}` }, ffmpegProc.stdin);
-        } catch (err) {
-          console.warn('[stream] Shoutout thank-you failed:', err.message);
-        }
+          const { path } = await textToMp3(outro.response.trim(), slot.voice, { energy: slot.energy });
+          if (ffmpegProc) await pipeSegment({ path, type: 'dj', title: 'Shoutout section outro' }, ffmpegProc.stdin);
+          console.log(`[stream] Shoutout section complete: ${names.length} played`);
+        } catch {}
 
         lastShoutoutTime = Date.now();
+
+      // --- SINGLE SHOUTOUT: normal 1-at-a-time with thank-you ---
+      } else {
+        const shoutout = getNextShoutout();
+        if (shoutout) {
+          const nameMatch = shoutout[0]?.title?.match(/— (\w+)/);
+          const firstName = nameMatch?.[1] || 'that';
+
+          console.log(`[stream] Playing shoutout (${shoutout.length} parts)`);
+          for (const part of shoutout) {
+            if (!ffmpegProc) break;
+            logBroadcast({ type: 'shoutout', title: part.title, slot: part.slot, generator: 'openrouter+edge-tts', voice: part.voice });
+            try { await pipeSegment(part, ffmpegProc.stdin); } catch (err) {
+              console.error('[stream] Shoutout pipe failed:', err.message);
+            }
+          }
+
+          // Short thank-you
+          try {
+            const thanks = await llm.generate({
+              prompt: `You are ${slot.presenterName} on radioGAGA. Write a warm 8-15 word thank-you to ${firstName} who just sent a shoutout. Be genuine, brief, in character. Output ONLY the spoken words:`,
+              options: { temperature: 0.95, num_predict: 40 },
+            });
+            const { path } = await textToMp3(thanks.response.trim(), slot.voice, { energy: slot.energy });
+            if (ffmpegProc) await pipeSegment({ path, type: 'dj', title: `Thanks — ${firstName}` }, ffmpegProc.stdin);
+          } catch {}
+
+          lastShoutoutTime = Date.now();
+        }
       }
-    }
+    }}
 
     // 1. Real content from queue
     if (queue.length > 0) {
