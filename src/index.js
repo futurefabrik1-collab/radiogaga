@@ -58,3 +58,16 @@ function shutdown(signal) {
 
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
+
+// Prevent EPIPE and other uncaught errors from crashing the process
+process.on('uncaughtException', (err) => {
+  if (err.code === 'EPIPE' || err.code === 'ERR_STREAM_DESTROYED') {
+    // Expected when FFmpeg dies mid-pipe — non-fatal, ignore
+    return;
+  }
+  console.error('[main] Uncaught exception:', err.message);
+});
+
+process.on('unhandledRejection', (err) => {
+  console.error('[main] Unhandled rejection:', err?.message || err);
+});

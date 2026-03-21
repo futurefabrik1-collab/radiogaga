@@ -128,11 +128,29 @@ async function produceDJSegment(slot) {
   let current = await refreshHeadlines();
   // If all headlines are used, generate from show's focus topics instead
   if (!current.length) {
-    console.log('[producer] No fresh headlines — generating from show focus topics');
-    current = slot.contentFocus.map(f => ({
-      title: `Talk about something fascinating related to ${f}`,
-      description: `Share an interesting thought, fact, or observation about ${f}`,
-      source: 'radioGAGA topic generator',
+    console.log('[producer] No fresh headlines — generating from original topics');
+    const ORIGINAL_TOPICS = [
+      'A neuroscience discovery that changes how we understand memory',
+      'The most underrated art movement of the last decade',
+      'Why your brain makes you procrastinate and how to hack it',
+      'A technology that exists right now that most people don\'t know about',
+      'The psychology of music — why certain chords make you feel things',
+      'A forgotten historical figure who changed the world quietly',
+      'How architecture affects your mood without you realising',
+      'The science of sleep — what happens to your brain at 3am',
+      'A cultural trend emerging right now that nobody is talking about',
+      'The most interesting experiment in behavioural science this year',
+      'Why creativity peaks at unexpected times of day',
+      'A philosophical question that science still can\'t answer',
+      'How different cultures around the world approach the same problem differently',
+      'The future of human connection in an AI-saturated world',
+      'Something genuinely beautiful about mathematics',
+    ];
+    const shuffled = ORIGINAL_TOPICS.sort(() => Math.random() - 0.5);
+    current = shuffled.slice(0, 3).map(t => ({
+      title: t,
+      description: '',
+      source: 'radioGAGA original',
     }));
   }
 
