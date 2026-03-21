@@ -63,16 +63,27 @@ export default function Index() {
     };
   }, []);
 
-  const vw = typeof window !== "undefined" ? window.innerWidth : 1200;
-  const vh = typeof window !== "undefined" ? window.innerHeight : 800;
+  const [dims, setDims] = useState({ vw: typeof window !== "undefined" ? window.innerWidth : 1200, vh: typeof window !== "undefined" ? window.innerHeight : 800 });
+  useEffect(() => {
+    const onResize = () => setDims({ vw: window.innerWidth, vh: window.innerHeight });
+    window.addEventListener("resize", onResize);
+    window.addEventListener("orientationchange", onResize);
+    return () => { window.removeEventListener("resize", onResize); window.removeEventListener("orientationchange", onResize); };
+  }, []);
+  const { vw, vh } = dims;
+  const mobile = vw < 640;
+  // Clamp node positions: min 50px from edges, max vw-50 / vh-200 (above player)
+  const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+  const nx = (pct: number) => clamp(vw * pct, 50, vw - 50);
+  const ny = (pct: number) => clamp(vh * pct, 60, vh - 220);
 
   const nodes = [
-    { id: "request", label: "Request", x: vw * 0.2, y: vh * 0.35, hue: 35, freqBand: 0 },
-    { id: "about", label: "About", x: vw * 0.75, y: vh * 0.25, hue: 200, freqBand: 2 },
-    { id: "shoutout", label: "Shoutout", x: vw * 0.55, y: vh * 0.6, hue: 340, freqBand: 4 },
-    { id: "show-idea", label: "Show Idea", x: vw * 0.15, y: vh * 0.65, hue: 130, freqBand: 6 },
-    { id: "advert", label: "Advertise", x: vw * 0.4, y: vh * 0.45, hue: 280, freqBand: 7 },
-    { id: "listen", label: t("node.listen"), x: vw * 0.82, y: vh * 0.72, hue: 45, freqBand: 8 },
+    { id: "request", label: "Request", x: nx(0.2), y: ny(0.3), hue: 35, freqBand: 0 },
+    { id: "about", label: "About", x: nx(0.75), y: ny(0.2), hue: 200, freqBand: 2 },
+    { id: "shoutout", label: "Shoutout", x: nx(0.55), y: ny(0.5), hue: 340, freqBand: 4 },
+    { id: "show-idea", label: "Show Idea", x: nx(mobile ? 0.25 : 0.15), y: ny(0.6), hue: 130, freqBand: 6 },
+    { id: "advert", label: "Advertise", x: nx(0.4), y: ny(0.4), hue: 280, freqBand: 7 },
+    { id: "listen", label: t("node.listen"), x: nx(mobile ? 0.75 : 0.82), y: ny(0.65), hue: 45, freqBand: 8 },
   ];
 
   return (
@@ -447,7 +458,7 @@ function NodeContent({ id }: { id: string }) {
             <FormInput label="Presenter name" name="presenter_name" placeholder="Luna" required />
             <FormTextarea label="Presenter personality" name="presenter_style" placeholder="Whispered conspiracy theorist who connects everything to ancient mythology..." rows={3} required />
             <FormTextarea label="Music mood" name="music_mood" placeholder="Deep dubstep, 140bpm, sub-heavy, foggy warehouse at 4am" rows={2} required />
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <FormSelect label="Energy" name="energy" options={[
                 { value: "1", label: "1 — Minimal" },
                 { value: "2", label: "2 — Low" },

@@ -11,6 +11,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { ollama } from './ollama.js';
 import { textToMp3 } from './tts.js';
+import { markHeadlinesUsed } from './rss.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -99,8 +100,9 @@ async function overlayVoiceOnSting(voicePath, stingPath, voiceDelayS = 3) {
 export async function generateNewsBulletin(headlines) {
   const hour = new Date().getHours();
 
-  const headlineList = headlines
-    .slice(0, 8) // give LLM more to choose positive ones from
+  const newsHeadlines = headlines.slice(0, 8);
+  markHeadlinesUsed(newsHeadlines); // archive so they won't repeat
+  const headlineList = newsHeadlines
     .map(h => `- ${h.title}`)
     .join('\n');
 

@@ -3,7 +3,7 @@
 // Prompt is shaped by the current schedule slot for time-of-day personality and length.
 
 import { ollama } from './ollama.js';
-// filter.js eliminated — chaos/anonymity rules are already in BASE_PERSONA prompt
+import { markHeadlinesUsed } from './rss.js';
 
 const BASE_PERSONA = `You are a radio presenter on radioGAGA, an AI-generated 24/7 radio station that is deeply aware of its own absurdity.
 
@@ -23,6 +23,7 @@ CRITICAL RULES — READ THESE FIRST:
 - NEVER discuss war, military conflict, weapons, or violence of any kind.
 - NEVER discuss politics, elections, political parties, politicians, or government policy.
 - If a story touches on these topics, skip it entirely and move to something else.
+- NEVER reference or mention shoutouts, listener messages, or dedications. Shoutouts are handled separately — do not invent, recall, or announce them in your monologue.
 
 CLASSIC RADIO PRESENTER STYLE — THIS IS HOW YOU SOUND:
 You are a REAL radio presenter. Study the greats: John Peel's dry warmth, Annie Nightingale's
@@ -96,6 +97,9 @@ export async function generateDJSegment(headlines, slot) {
 
   const count = Math.floor(2 + Math.random() * 3);
   const selected = pool.sort(() => Math.random() - 0.5).slice(0, count);
+
+  // Archive selected headlines so they won't be reused for 24 hours
+  markHeadlinesUsed(selected);
 
   const headlineList = selected
     .map(h => `- [${h.source}] ${h.title}${h.description ? ': ' + h.description : ''}`)

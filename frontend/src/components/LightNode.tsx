@@ -109,6 +109,9 @@ export default function LightNode({ id, label, x, y, hue, children, mouseX, mous
           left: `${x + audioDrift.dx}px`,
           top: `${y + audioDrift.dy}px`,
           transform: "translate(-50%, -50%)",
+          // Minimum 48px touch target for mobile accessibility
+          minWidth: 48,
+          minHeight: 48,
         }}
         aria-label={`Explore ${label}`}
       >
@@ -155,7 +158,7 @@ export default function LightNode({ id, label, x, y, hue, children, mouseX, mous
       {/* Expanded content panel */}
       {expanded && (
         <div
-          className="fixed inset-0 z-50 flex items-start justify-center pt-12 pb-48 p-4 md:p-8"
+          className="fixed inset-0 z-50 flex items-start justify-center pt-8 sm:pt-12 pb-40 sm:pb-48 px-3 sm:px-8"
           onClick={handleClick}
         >
           <div
@@ -163,13 +166,13 @@ export default function LightNode({ id, label, x, y, hue, children, mouseX, mous
             style={{ background: `hsla(220, 30%, 5%, 0.85)`, backdropFilter: "blur(20px)" }}
           />
           <div
-            className="relative content-panel max-w-2xl w-full max-h-[50vh] overflow-y-auto p-3 md:p-4 text-xs animate-fade-in-up"
+            className="relative content-panel max-w-lg sm:max-w-2xl w-full max-h-[65vh] sm:max-h-[50vh] overflow-y-auto overscroll-contain p-3 sm:p-4 text-xs animate-fade-in-up"
             onClick={(e) => e.stopPropagation()}
             style={{ animationDelay: "0.1s", opacity: 0 }}
           >
             <button
               onClick={handleClick}
-              className="absolute top-4 right-4 text-label opacity-50 hover:opacity-100 transition-opacity"
+              className="absolute top-2 right-2 sm:top-4 sm:right-4 text-label opacity-50 hover:opacity-100 transition-opacity min-w-[44px] min-h-[44px] flex items-center justify-center"
             >
               {t("close")}
             </button>

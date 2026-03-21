@@ -99,7 +99,7 @@ export default function CostBanner() {
 
         {/* Deficit / surplus message */}
         <div className="flex items-center justify-between mt-1.5">
-          <span className="text-foreground/30 normal-case text-[8px]">
+          <span className="text-foreground/30 normal-case text-[10px] sm:text-[8px]">
             {deficit > 0
               ? `€${deficit.toFixed(2)} needed to break even`
               : `Funded! €${Math.abs(deficit).toFixed(2)} surplus`}
@@ -108,7 +108,7 @@ export default function CostBanner() {
             href="https://ko-fi.com/radiogaga/tiers"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-1 text-[9px] hover:opacity-80 transition-opacity"
+            className="flex items-center gap-1 text-[10px] sm:text-[9px] min-h-[44px] hover:opacity-80 transition-opacity"
             style={{ color: "hsl(35, 80%, 65%)" }}
           >
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

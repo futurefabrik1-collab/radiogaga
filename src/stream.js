@@ -335,16 +335,36 @@ async function runLoop() {
     if (Date.now() - lastShoutoutTime >= SHOUTOUT_COOLDOWN_MS) {
       const shoutout = getNextShoutout();
       if (shoutout) {
+        // Extract the sender's first name from the shoutout title
+        const nameMatch = shoutout[0]?.title?.match(/— (\w+)/);
+        const firstName = nameMatch?.[1] || 'that';
+
         console.log(`[stream] Playing shoutout (${shoutout.length} parts)`);
         for (const part of shoutout) {
           if (!ffmpegProc) break;
-          logBroadcast({ type: 'shoutout', title: part.title, slot: part.slot, generator: 'groq+edge-tts', model: 'llama-3.3-70b-versatile', voice: part.voice });
+          logBroadcast({ type: 'shoutout', title: part.title, slot: part.slot, generator: 'openrouter+edge-tts', voice: part.voice });
           try {
             await pipeSegment(part, ffmpegProc.stdin);
           } catch (err) {
             console.error('[stream] Shoutout pipe failed:', err.message);
           }
         }
+
+        // Generate a short thank-you from the current presenter
+        try {
+          const slot = getCurrentSlot();
+          const { ollama: llm } = await import('./content/ollama.js');
+          const { textToMp3 } = await import('./content/tts.js');
+          const thanks = await llm.generate({
+            prompt: `You are ${slot.presenterName} on radioGAGA. Write a warm 8-15 word thank-you to a listener named ${firstName} who just sent a shoutout. Be genuine, brief, in character. Output ONLY the spoken words:`,
+            options: { temperature: 0.95, num_predict: 40 },
+          });
+          const { path } = await textToMp3(thanks.response.trim(), slot.voice, { energy: slot.energy });
+          if (ffmpegProc) await pipeSegment({ path, type: 'dj', title: `Thanks — ${firstName}` }, ffmpegProc.stdin);
+        } catch (err) {
+          console.warn('[stream] Shoutout thank-you failed:', err.message);
+        }
+
         lastShoutoutTime = Date.now();
       }
     }

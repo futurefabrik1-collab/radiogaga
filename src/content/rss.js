@@ -118,12 +118,37 @@ function isExcluded(headline) {
   return EXCLUDED_KEYWORDS.some(kw => text.includes(kw));
 }
 
+// Track used headlines — once a headline is picked for a DJ segment, it's archived.
+// Keyed by title hash. Cleared every 24 hours to allow stories to recirculate.
+const usedHeadlines = new Set();
+const USED_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+let usedHeadlinesResetTime = Date.now();
+
+export function markHeadlineUsed(headline) {
+  usedHeadlines.add(headline.title.toLowerCase().trim());
+}
+
+export function markHeadlinesUsed(headlines) {
+  for (const h of headlines) markHeadlineUsed(h);
+}
+
+function isUsed(headline) {
+  // Reset the used set every 24 hours
+  if (Date.now() - usedHeadlinesResetTime > USED_MAX_AGE_MS) {
+    usedHeadlines.clear();
+    usedHeadlinesResetTime = Date.now();
+    console.log('[rss] Used headlines cache cleared (24h rotation)');
+  }
+  return usedHeadlines.has(headline.title.toLowerCase().trim());
+}
+
 export async function fetchHeadlines(maxPerFeed = 3) {
   const results = await Promise.allSettled(FEEDS.map(f => fetchFeed(f)));
   const all = results
     .filter(r => r.status === 'fulfilled')
     .flatMap(r => r.value.slice(0, maxPerFeed))
-    .filter(h => !isExcluded(h));
+    .filter(h => !isExcluded(h))
+    .filter(h => !isUsed(h)); // exclude already-used headlines
 
   // Shuffle so we don't always lead with BBC
   for (let i = all.length - 1; i > 0; i--) {
@@ -131,6 +156,6 @@ export async function fetchHeadlines(maxPerFeed = 3) {
     [all[i], all[j]] = [all[j], all[i]];
   }
 
-  console.log(`[rss] Fetched ${all.length} headlines (war/politics excluded)`);
+  console.log(`[rss] Fetched ${all.length} headlines (${usedHeadlines.size} used, war/politics excluded)`);
   return all;
 }

@@ -219,9 +219,9 @@ export default function RadioPlayer() {
         </div>
 
         {/* Central play button with buffer ring */}
-        <div className="flex items-center gap-5 w-full">
-          <div className="flex items-center gap-3">
-            {/* Volume */}
+        <div className="flex items-center gap-3 sm:gap-5 w-full">
+          <div className="hidden sm:flex items-center gap-3">
+            {/* Volume — hidden on mobile, shown on desktop */}
             <input
               type="range"
               min="0"
@@ -229,7 +229,7 @@ export default function RadioPlayer() {
               step="0.01"
               value={volume}
               onChange={(e) => setVolume(parseFloat(e.target.value))}
-              className="w-14 h-1 appearance-none bg-border rounded-full cursor-pointer accent-primary"
+              className="w-14 h-2 appearance-none bg-border rounded-full cursor-pointer accent-primary"
               aria-label="Volume"
             />
           </div>
