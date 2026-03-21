@@ -9,7 +9,7 @@ interface NowPlaying { type: string; title: string; slot: string | null; }
 const SEGMENT_LABELS: Record<string, string> = {
   dj: "PRESENTER", music: "MUSIC", advert: "AD BREAK", news: "NEWS",
   weather: "WEATHER", guest: "GUEST", jingle: "JINGLE", shoutout: "SHOUTOUT",
-  "track-intro": "INTRO", "track-outro": "OUTRO",
+  "track-intro": "INTRO", "track-outro": "OUTRO", "ai-announcement": "AI MESSAGE",
 };
 
 function useShows() {
@@ -78,6 +78,32 @@ export default function RadioPlayer() {
   const { shows, currentShow, skipTo, nowPlaying } = useShows();
   const currentShowObj = shows.find(s => s.id === currentShow);
   const [showPicker, setShowPicker] = useState(false);
+  const [minimized, setMinimized] = useState(false);
+
+  // Minimized: just the play button floating bottom-right
+  if (minimized) {
+    return (
+      <div className="fixed bottom-4 right-4 z-50">
+        <div className="relative" style={{ width: 56, height: 56 }}>
+          <BufferRing playing={playing} muted={muted} analyserRef={analyserRef} />
+          <button onClick={togglePlay}
+            className="absolute inset-0 m-auto w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-90"
+            style={{ background: playing ? "hsla(35,80%,65%,0.15)" : "hsla(35,80%,65%,0.08)" }}>
+            {playing && !muted ? (
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="2" y="1" width="3.5" height="12" rx="1" fill="hsl(35,80%,65%)" /><rect x="8.5" y="1" width="3.5" height="12" rx="1" fill="hsl(35,80%,65%)" /></svg>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 1.5L12 7L3 12.5V1.5Z" fill="hsl(35,80%,65%)" /></svg>
+            )}
+          </button>
+        </div>
+        <button onClick={() => setMinimized(false)}
+          className="absolute -top-1 -left-1 w-5 h-5 rounded-full flex items-center justify-center text-[10px] text-foreground/50 hover:text-foreground/80 transition-colors"
+          style={{ background: "hsla(0,0%,0%,0.6)" }}>
+          ↑
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-50 flex flex-col items-center pb-3 sm:pb-4 px-2 sm:px-4">
@@ -127,6 +153,11 @@ export default function RadioPlayer() {
             <button onClick={() => setShowPicker(v => !v)}
               className="font-mono text-[9px] tracking-widest uppercase text-foreground/40 hover:text-foreground/70 transition-colors min-h-[36px] px-1">
               {showPicker ? "✕" : "▸"}
+            </button>
+            <button onClick={() => setMinimized(true)}
+              className="font-mono text-[9px] text-foreground/30 hover:text-foreground/60 transition-colors min-h-[36px] px-1"
+              title="Minimize player">
+              ↓
             </button>
           </div>
         </div>

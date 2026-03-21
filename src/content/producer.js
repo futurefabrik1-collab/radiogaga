@@ -27,6 +27,7 @@ import { generateTrackIntro, generateTrackOutro } from './trackIntro.js';
 import { generateGuestSegment } from './guest.js';
 import { generateNewsBulletin } from './news.js';
 import { generateWeatherForecast } from './weather.js';
+import { generateAIAnnouncement } from './aiAnnouncement.js';
 import { existsSync } from 'node:fs';
 import { getNextListenerAd, incrementAdPlayCount } from '../db.js';
 import { initFoleyPool, startBedWorker } from './studioFx.js';
@@ -107,6 +108,8 @@ let lastSlotId = null;
 let lastTrackInfo = null; // { title, creator, mood } — for back-announce after track plays
 let lastNewsHour = -1;   // prevent duplicate news per hour
 let lastTalkTime = Date.now(); // timestamp of last talk segment queued
+let lastAIAnnouncementTime = 0; // timestamp of last AI announcement
+const AI_ANNOUNCEMENT_INTERVAL_MS = 33 * 60 * 1000; // ~3% of airtime: one every 33 min
 const COMPETITION_EVERY_N_CYCLES = 5;
 
 async function refreshHeadlines() {
@@ -425,6 +428,18 @@ async function loop() {
         if (slot.advertFrequency > 0 && cycleCount % slot.advertFrequency === 0) {
           console.log(`[producer] ${slot.name}: advert break (${slot.advertHumor})`);
           await produceAdvert(slot);
+        }
+
+        // AI announcement — ~3% airtime, one every ~33 minutes
+        if (Date.now() - lastAIAnnouncementTime >= AI_ANNOUNCEMENT_INTERVAL_MS) {
+          try {
+            const announcement = await generateAIAnnouncement();
+            queue.push(announcement);
+            lastAIAnnouncementTime = Date.now();
+            console.log(`[producer] AI announcement queued: ${announcement.title}`);
+          } catch (err) {
+            console.error('[producer] AI announcement failed:', err.message);
+          }
         }
       } else {
         // Every guestFrequency cycles, swap one DJ segment for a guest interview
