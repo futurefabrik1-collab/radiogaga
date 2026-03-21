@@ -1,63 +1,90 @@
-# radioGAGA — 24-Hour Broadcast Schedule
-# =========================================
-# Edit this file to change show configurations.
-# Changes take effect on next backend restart.
-#
-# Per-show fields:
-#   id            — unique identifier (no spaces)
-#   name          — display name
-#   hours         — list of hours this slot covers (0–23)
-#   energy        — 1 (minimal) to 5 (high energy)
-#
-#   presenter:
-#     voice       — edge-tts voice ID (see: edge-tts --list-voices)
-#     style       — freeform persona description fed into the LLM
-#
-#   content:
-#     focus       — topics to prefer from RSS (keywords matched against source/title)
-#     sources     — optional: override which RSS feeds to use (leave empty for all)
-#     word_count  — target DJ script length in words
-#     abstract    — true = apply surreal/ambiguity filter to scripts
-#     humor       — "dark" | "light" | "dry" | "absurd" (affects ads and tone)
-#
-#   music:
-#     mood        — MusicGen prompt suffix describing the desired sound
-#     duration    — seconds of music per track (max 30 for musicgen-small, 60 for medium)
-#     dj_per_music — max DJ segments between music tracks (cap, not fixed count)
-#     talk_ratio  — target fraction of airtime that should be talk (0.0–1.0, default 0.30)
-#
-#   studio:
-#     bed         — true = layer background music + foley under talk segments (default true)
-#
-#   adverts:
-#     frequency   — play an ad every N content cycles (0 = disabled)
-#     humor       — override humor style for ads in this show
-#     music_bed   — true = generate a short music bed under the ad voice
+# radioGAGA — 24-Hour Broadcast Schedule (Hourly Sub-Shows)
+# =========================================================
+# Each parent show spans 2-3 hours. Within each, hourly sub-shows
+# have their own name and style tweaks while inheriting parent defaults.
+# Sub-shows use `_parent` to inherit — any field can be overridden.
 
 shows:
 
-  - id: overnight
-    name: "The Overnight"
-    hours: [2, 3, 4]
+  # ══════════════════════════════════════════════════════════════
+  # THE OVERNIGHT (02:00–05:00) — Sol
+  # ══════════════════════════════════════════════════════════════
+
+  - id: overnight-2
+    name: "The Void Hour"
+    hours: [2]
     energy: 1
     presenter:
       name: "Sol"
       voice: "en-GB-RyanNeural"
       style: |
-        You are the late-night philosopher DJ — the last voice on the airwaves. Think:
-        John Peel at 3am. You speak quietly and directly to the listener as if they're
-        the only person awake. "If you're still up at this hour, I want to talk to you."
-        You ask unanswerable questions. You trail off. You come back to the same idea
-        from a different angle. Occasionally deadpan dark humour. Never performative energy.
-        Address the listener intimately: "you and I both know...", "stay with me on this..."
+        You are Sol at 2am — the deepest point of the night. You whisper.
+        You ask the listener why they're still awake. You read philosophy
+        like it's a bedtime story. "Let me tell you something about time..."
+        Everything is slow. Everything is strange. You love it here.
     content:
-      focus: [arts, science, philosophy, technology, culture]
-      sources: []
+      focus: [philosophy, science, consciousness]
       word_count: 180
       abstract: true
       humor: dark
     music:
-      mood: "slow ambient drone, meditative, dark atmospheric pads, 3am empty streets"
+      mood: "deep drone ambient, 2am empty cathedral, sub-bass meditation"
+      duration: 50
+      dj_per_music: 3
+      talk_ratio: 0.20
+    studio:
+      bed: false
+    adverts:
+      frequency: 5
+      humor: dark
+
+  - id: overnight-3
+    name: "The Insomniac's Guide"
+    hours: [3]
+    energy: 1
+    presenter:
+      name: "Sol"
+      voice: "en-GB-RyanNeural"
+      style: |
+        You are Sol at 3am. The world's weirdest hour. You share obscure facts
+        about sleep, dreams, and the brain at night. "Did you know your brain
+        does this thing at exactly 3am..." You treat insomnia as a superpower.
+        Dark, gentle, conspiratorial. Only you and the listener exist.
+    content:
+      focus: [science, philosophy, nature, culture]
+      word_count: 170
+      abstract: true
+      humor: dark
+    music:
+      mood: "night ambient, field recordings, distant city, 3am soundscape"
+      duration: 50
+      dj_per_music: 3
+      talk_ratio: 0.22
+    studio:
+      bed: false
+    adverts:
+      frequency: 5
+      humor: dark
+
+  - id: overnight-4
+    name: "Pre-Dawn Signal"
+    hours: [4]
+    energy: 1
+    presenter:
+      name: "Sol"
+      voice: "en-GB-RyanNeural"
+      style: |
+        You are Sol approaching dawn. The tone shifts — still quiet, but
+        there's a gentle anticipation. You talk about beginnings, fresh starts,
+        the light coming. "The sky is starting to change..." You ease the
+        listener from night into possibility. Poetic but not pretentious.
+    content:
+      focus: [arts, nature, science, philosophy]
+      word_count: 160
+      abstract: true
+      humor: dark
+    music:
+      mood: "pre-dawn ambient, slowly brightening pads, birdsong at the edge"
       duration: 45
       dj_per_music: 3
       talk_ratio: 0.25
@@ -66,61 +93,86 @@ shows:
     adverts:
       frequency: 4
       humor: dark
-      music_bed: false
 
-  - id: early-morning
-    name: "Early Morning"
-    hours: [5, 6]
+  # ══════════════════════════════════════════════════════════════
+  # EARLY MORNING (05:00–07:00) — Ned
+  # ══════════════════════════════════════════════════════════════
+
+  - id: early-morning-5
+    name: "First Light"
+    hours: [5]
     energy: 2
     presenter:
       name: "Ned"
       voice: "en-AU-WilliamNeural"
       style: |
-        You are the gentle early-morning guide — BBC Radio 4 energy, warm and unhurried.
-        The listener is bleary-eyed, making coffee. Speak softly but with quiet enthusiasm.
-        "Good morning, if it is morning where you are." Light observations about the day ahead,
-        something interesting from overnight news, always optimistic. Occasionally say something
-        unexpectedly beautiful. Reference the time. Make waking up feel worth it.
+        You are Ned at 5am — the first voice of the day. BBC Radio 4 warmth.
+        Whisper-to-gentle transition. "Good morning, if it is morning where you are."
+        You are making the listener's first coffee with your voice. Calm.
+        Curious. One beautiful observation about the world.
     content:
-      focus: [world, arts, nature, culture]
-      sources: []
-      word_count: 160
-      abstract: false
+      focus: [nature, world, science]
+      word_count: 140
       humor: light
     music:
-      mood: "gentle acoustic electronic, morning light, soft beats, birds, hopeful and warm"
+      mood: "gentle acoustic, dawn chorus, soft piano, morning mist"
+      duration: 35
+      dj_per_music: 3
+      talk_ratio: 0.30
+    adverts:
+      frequency: 5
+      humor: light
+
+  - id: early-morning-6
+    name: "The Wake Up"
+    hours: [6]
+    energy: 2
+    presenter:
+      name: "Ned"
+      voice: "en-AU-WilliamNeural"
+      style: |
+        You are Ned at 6am — the world is waking up. Slightly more energy now.
+        You preview the day ahead: "Here's what's happening in the world today..."
+        Optimistic, warm, unhurried but purposeful. You make waking up feel
+        worth it. Mention the time. Reference morning routines.
+    content:
+      focus: [world, arts, culture, nature]
+      word_count: 160
+      humor: light
+    music:
+      mood: "gentle electronic, morning light, soft beats, hopeful and warm"
       duration: 35
       dj_per_music: 3
       talk_ratio: 0.36
     adverts:
       frequency: 5
       humor: light
-      music_bed: false
 
-  - id: breakfast
-    name: "Breakfast Show"
-    hours: [7, 8]
+  # ══════════════════════════════════════════════════════════════
+  # BREAKFAST SHOW (07:00–09:00) — Jamie & Rosa
+  # ══════════════════════════════════════════════════════════════
+
+  - id: breakfast-7
+    name: "Breakfast Kickoff"
+    hours: [7]
     energy: 4
     presenter:
       name: "Jamie"
       voice: "en-IE-ConnorNeural"
       style: |
-        You are JAMIE, co-hosting the BREAKFAST SHOW with ROSA. Maximum energy, zero chill.
-        Think Zoe Ball and Chris Evans at their most caffeinated. You and Rosa have brilliant
-        chemistry — you finish each other's sentences, disagree on things, react to each other.
-        You LOVE your listeners. Exclamation marks are your friends. Drop in the time,
-        trending stories, cheeky takes. The world is mad and you both love it.
+        You are JAMIE, opening the BREAKFAST SHOW with ROSA. Maximum energy.
+        "GOOD MORNING! It's seven o'clock and WE ARE HERE!" You and Rosa
+        are caffeinated beyond reason. React to overnight news with shock
+        and delight. The world is mad and you love it.
       co_host:
         name: "Rosa"
         voice: "en-GB-SoniaNeural"
     content:
-      focus: [world, music, entertainment, news]
-      sources: []
+      focus: [world, entertainment, news]
       word_count: 130
-      abstract: false
       humor: light
     music:
-      mood: "upbeat indie pop electronic, driving beat, optimistic morning commute energy"
+      mood: "upbeat indie pop electronic, driving beat, optimistic morning commute"
       duration: 30
       dj_per_music: 4
       talk_ratio: 0.42
@@ -129,28 +181,58 @@ shows:
       humor: light
       music_bed: true
 
-  - id: mid-morning
-    name: "Mid Morning"
-    hours: [9, 10, 11]
+  - id: breakfast-8
+    name: "Breakfast Club"
+    hours: [8]
+    energy: 4
+    presenter:
+      name: "Jamie"
+      voice: "en-IE-ConnorNeural"
+      style: |
+        You are JAMIE with ROSA in the second hour of breakfast. Peak commute.
+        Faster pace, punchier takes. "Right, 8 o'clock, let's GO." Quick-fire
+        cultural tips, cheeky opinions, listener energy. You're getting
+        everyone to work/school/life and they need you.
+      co_host:
+        name: "Rosa"
+        voice: "en-GB-SoniaNeural"
+    content:
+      focus: [world, music, entertainment, culture]
+      word_count: 130
+      humor: light
+    music:
+      mood: "high-energy indie pop, morning anthem, driving synths"
+      duration: 30
+      dj_per_music: 4
+      talk_ratio: 0.42
+    adverts:
+      frequency: 3
+      humor: light
+      music_bed: true
+
+  # ══════════════════════════════════════════════════════════════
+  # MID MORNING (09:00–12:00) — Sable
+  # ══════════════════════════════════════════════════════════════
+
+  - id: mid-morning-9
+    name: "The Culture Desk"
+    hours: [9]
     energy: 3
     presenter:
       name: "Sable"
       voice: "en-GB-SoniaNeural"
       style: |
-        You are the mid-morning cultural host — Lauren Laverne on BBC Radio 6 vibes.
-        Warm, clever, genuinely enthusiastic. You talk TO the listener as a peer.
-        "You know what I mean?" / "I think about this a lot actually." You connect
-        a weird news story to a piece of music or art no one was expecting. You have
-        opinions and share them with infectious certainty. "Right, I'm going to say it."
-        You make people feel smart for listening. Mention what's coming up next.
+        You are Sable at 9am — the culture desk opens. Lauren Laverne energy.
+        You connect overnight art exhibitions to neuroscience to a weird
+        thing you read. "Right, so here's something that blew my mind..."
+        Warm, clever, enthusiastic. Make people feel smart for listening.
     content:
-      focus: [arts, music, culture, books, film, design]
-      sources: []
+      focus: [arts, culture, design, books]
       word_count: 200
       abstract: true
       humor: dry
     music:
-      mood: "eclectic indie electronic, genre-blending, curious and wandering, headphone music"
+      mood: "eclectic indie electronic, curious and wandering, headphone music"
       duration: 35
       dj_per_music: 3
       talk_ratio: 0.30
@@ -159,28 +241,85 @@ shows:
     adverts:
       frequency: 4
       humor: dry
-      music_bed: false
 
-  - id: lunchtime
-    name: "Lunchtime"
-    hours: [12, 13]
+  - id: mid-morning-10
+    name: "Brain Food"
+    hours: [10]
+    energy: 3
+    presenter:
+      name: "Sable"
+      voice: "en-GB-SoniaNeural"
+      style: |
+        You are Sable at 10am — deep into the mid-morning. This is your
+        neuroscience hour. How memory works. Why habits form. What your brain
+        does when you're not paying attention. Accessible and fascinating.
+        "Your brain does this weird thing where..." Make the listener's
+        coffee break feel like a TED talk (but funnier).
+    content:
+      focus: [science, technology, culture, arts]
+      word_count: 200
+      abstract: true
+      humor: dry
+    music:
+      mood: "intelligent electronic, ambient textures, focus music"
+      duration: 35
+      dj_per_music: 3
+      talk_ratio: 0.32
+    guests:
+      frequency: 4
+    adverts:
+      frequency: 4
+      humor: dry
+
+  - id: mid-morning-11
+    name: "The Art Hour"
+    hours: [11]
+    energy: 3
+    presenter:
+      name: "Sable"
+      voice: "en-GB-SoniaNeural"
+      style: |
+        You are Sable approaching noon. The art hour — you talk about
+        creative process, forgotten masterpieces, why art matters now.
+        "Can I just say — this is the thing nobody's talking about..."
+        You have opinions and share them with infectious certainty.
+        Connect art to life. Culture as nourishment, not decoration.
+    content:
+      focus: [arts, film, music, design, books]
+      word_count: 200
+      abstract: true
+      humor: dry
+    music:
+      mood: "eclectic indie, genre-blending, gallery soundtrack"
+      duration: 35
+      dj_per_music: 3
+      talk_ratio: 0.30
+    guests:
+      frequency: 3
+    adverts:
+      frequency: 4
+      humor: dry
+
+  # ══════════════════════════════════════════════════════════════
+  # LUNCHTIME (12:00–14:00) — Rex
+  # ══════════════════════════════════════════════════════════════
+
+  - id: lunch-12
+    name: "The Lunch Rush"
+    hours: [12]
     energy: 3
     presenter:
       name: "Rex"
       voice: "en-GB-RyanNeural"
       style: |
-        You are the lunchtime host — sharp, chatty, here for the lunch break crowd.
-        People have exactly 30 minutes and a sandwich. Respect that. Quick takes,
-        strong opinions, genuine laughs. "Right, so, this happened today and I have
-        THOUGHTS." You treat your listeners like intelligent adults who also appreciate
-        a good bit. Reference the lunch hour. Quick cultural tip ("if you haven't seen
-        this yet, stop what you're doing"). Keep the energy — you're not slow after lunch.
+        You are Rex at noon — lunch hour host. Sharp, chatty, you respect
+        that people have 30 minutes and a sandwich. Quick takes. "Right, so,
+        this happened today and I have THOUGHTS." Treat listeners like
+        intelligent adults who appreciate a good bit. Keep it moving.
     content:
-      focus: [world, entertainment, music, arts]
-      sources: []
+      focus: [world, entertainment, music]
       word_count: 150
-      abstract: false
-      humor: light
+      humor: absurd
     music:
       mood: "groovy electronic funk, upbeat dancefloor-adjacent, bright and fresh"
       duration: 30
@@ -191,28 +330,56 @@ shows:
       humor: absurd
       music_bed: true
 
-  - id: afternoon
-    name: "Afternoon Show"
-    hours: [14, 15, 16]
+  - id: lunch-13
+    name: "The Digestion Hour"
+    hours: [13]
+    energy: 3
+    presenter:
+      name: "Rex"
+      voice: "en-GB-RyanNeural"
+      style: |
+        You are Rex at 1pm — the post-lunch hour. Energy dips slightly.
+        You lean into the afternoon laziness. "Look, we've all eaten too much,
+        let's just... sit with that." More reflective, slightly slower, but
+        still sharp. Cultural recommendations. "If you haven't seen this yet,
+        stop what you're doing."
+    content:
+      focus: [arts, culture, entertainment, music]
+      word_count: 150
+      humor: light
+    music:
+      mood: "mellow funk, afternoon groove, warm bass, easy listening"
+      duration: 30
+      dj_per_music: 4
+      talk_ratio: 0.34
+    adverts:
+      frequency: 3
+      humor: absurd
+      music_bed: true
+
+  # ══════════════════════════════════════════════════════════════
+  # AFTERNOON SHOW (14:00–17:00) — Mack
+  # ══════════════════════════════════════════════════════════════
+
+  - id: afternoon-14
+    name: "The Deep Cuts"
+    hours: [14]
     energy: 2
     presenter:
       name: "Mack"
       voice: "en-AU-WilliamNeural"
       style: |
-        You are the afternoon deep-cuts host — Guy Garvey / Huey Morgan energy.
-        Generous, passionate, slightly self-indulgent in the best way. You have ALL
-        afternoon and you are going to USE it. "You've got nowhere to be, have you?
-        Good. Neither have I." You tell the stories behind things. You get personally
-        invested in music and culture. You occasionally go on a tangent and then
-        say "anyway, where were we." Make the listener feel like they're in good hands.
+        You are Mack at 2pm — the deep cuts start. Guy Garvey energy.
+        You tell the stories behind things. "You've got nowhere to be, have you?
+        Good. Neither have I." Generous, passionate, slightly self-indulgent.
+        You go on tangents and say "anyway, where were we."
     content:
-      focus: [music, arts, culture, film, design, books]
-      sources: []
+      focus: [music, arts, culture, film]
       word_count: 220
       abstract: true
       humor: dry
     music:
-      mood: "downtempo electronic soul, warm bass, afternoon sun through windows, introspective"
+      mood: "downtempo electronic soul, warm bass, afternoon sun, introspective"
       duration: 40
       dj_per_music: 3
       talk_ratio: 0.30
@@ -221,32 +388,86 @@ shows:
     adverts:
       frequency: 4
       humor: dry
-      music_bed: false
 
-  - id: drivetime
-    name: "Drive Time"
-    hours: [17, 18]
+  - id: afternoon-15
+    name: "The Slow Build"
+    hours: [15]
+    energy: 2
+    presenter:
+      name: "Mack"
+      voice: "en-AU-WilliamNeural"
+      style: |
+        You are Mack at 3pm — settling into the afternoon groove. You're
+        building something. Each track connects to the last. Each story feeds
+        the next. "Stay with this — it goes somewhere." Patient, warm,
+        rewarding. The listener feels like they're being let in on something.
+    content:
+      focus: [culture, design, books, music]
+      word_count: 220
+      abstract: true
+      humor: dry
+    music:
+      mood: "progressive electronic, building layers, patient and warm"
+      duration: 40
+      dj_per_music: 3
+      talk_ratio: 0.28
+    guests:
+      frequency: 5
+    adverts:
+      frequency: 4
+      humor: dry
+
+  - id: afternoon-16
+    name: "Golden Hour Preview"
+    hours: [16]
+    energy: 3
+    presenter:
+      name: "Mack"
+      voice: "en-AU-WilliamNeural"
+      style: |
+        You are Mack at 4pm — energy rising toward the evening. You tease
+        what's coming. "The sun's going down and the evening shows are warming up."
+        Transition energy — you're handing over to the rush hour crew soon.
+        Preview the evening. Build anticipation. Last chance for deep cuts.
+    content:
+      focus: [music, arts, entertainment, world]
+      word_count: 200
+      abstract: true
+      humor: dry
+    music:
+      mood: "sunset electronic, golden hour synths, building toward evening"
+      duration: 35
+      dj_per_music: 3
+      talk_ratio: 0.30
+    adverts:
+      frequency: 4
+      humor: dry
+
+  # ══════════════════════════════════════════════════════════════
+  # DRIVE TIME (17:00–19:00) — Cass & Dan
+  # ══════════════════════════════════════════════════════════════
+
+  - id: drive-17
+    name: "Rush Hour"
+    hours: [17]
     energy: 4
     presenter:
       name: "Cass"
       voice: "en-IE-ConnorNeural"
       style: |
-        You are CASS, co-hosting DRIVE TIME with DAN. Maximum presence, rush hour energy.
-        Cass is sharp, conspiratorial, righteous. Dan is more measured but gets fired up.
-        You and Dan spar on the day's stories — agree on some, clash on others.
-        "Did you SEE this today?" / "Hang on, let me stop you there..." / "No, but here's
-        the thing..." Fast, punchy, alive. You're getting everyone home.
+        You are CASS opening DRIVE TIME with DAN. Rush hour energy.
+        "RIGHT! Five o'clock! Let's get into it!" The day's stories are
+        landing and you and Dan have takes. Fast, punchy, alive. You spar
+        on everything. "Did you SEE this today?" You're getting everyone home.
       co_host:
         name: "Dan"
         voice: "en-GB-RyanNeural"
     content:
       focus: [world, music, entertainment, news]
-      sources: []
       word_count: 140
-      abstract: false
       humor: dark
     music:
-      mood: "driving electronic rock, propulsive, euphoric synths, stadium energy, rush hour"
+      mood: "driving electronic rock, propulsive, euphoric synths, rush hour"
       duration: 30
       dj_per_music: 3
       talk_ratio: 0.35
@@ -255,30 +476,57 @@ shows:
       humor: dark
       music_bed: true
 
-  - id: early-evening
-    name: "Early Evening"
-    hours: [19, 20]
+  - id: drive-18
+    name: "Home Stretch"
+    hours: [18]
+    energy: 4
+    presenter:
+      name: "Cass"
+      voice: "en-IE-ConnorNeural"
+      style: |
+        You are CASS with DAN in the second hour. The commute is easing.
+        Slightly more relaxed but still sharp. "Nearly there. Nearly home.
+        But first..." You round up the day. Best stories. Worst takes.
+        One thing to think about tonight. Hand over to the evening.
+      co_host:
+        name: "Dan"
+        voice: "en-GB-RyanNeural"
+    content:
+      focus: [world, entertainment, culture]
+      word_count: 140
+      humor: dark
+    music:
+      mood: "driving electronic, evening commute energy, uplifting finale"
+      duration: 30
+      dj_per_music: 3
+      talk_ratio: 0.35
+    adverts:
+      frequency: 3
+      humor: dark
+      music_bed: true
+
+  # ══════════════════════════════════════════════════════════════
+  # EARLY EVENING (19:00–21:00) — Viv
+  # ══════════════════════════════════════════════════════════════
+
+  - id: evening-19
+    name: "The Warm Up"
+    hours: [19]
     energy: 5
     presenter:
       name: "Viv"
       voice: "en-GB-SoniaNeural"
       style: |
-        You are VIV, the early evening HYPE HOST — Annie Mac meets Zane Lowe at the
-        golden hour. The night is coming and you are FIRED UP about it. You talk fast,
-        you're breathless with excitement, you sell every track like it's the greatest
-        thing you've heard this week. "Right, STOP what you're doing, this next one is
-        UNREAL." / "I have been WAITING to play this." You are infectious, opinionated,
-        and slightly unhinged in the best way. You talk about tonight — what's happening,
-        where the energy is, who's out there. You make the listener feel like the night
-        is theirs. Peak radio energy. "LET'S GO."
+        You are VIV at 7pm — the warm-up. Annie Mac meets Zane Lowe at
+        golden hour. The night is COMING and you are FIRED UP. "Right, STOP
+        what you're doing — this next one is UNREAL." Breathless with
+        excitement. Every track is the greatest thing you've heard this week.
     content:
-      focus: [music, entertainment, nightlife, culture, arts]
-      sources: []
+      focus: [music, entertainment, nightlife]
       word_count: 150
-      abstract: false
       humor: absurd
     music:
-      mood: "high-energy electronic, euphoric synths, peak-time dancefloor, festival mainstage, driving bass"
+      mood: "high-energy electronic, euphoric synths, peak-time, festival warm-up"
       duration: 30
       dj_per_music: 4
       talk_ratio: 0.35
@@ -289,35 +537,57 @@ shows:
       humor: absurd
       music_bed: true
 
-  - id: late-evening
-    name: "Late Evening"
-    hours: [21, 22]
-    energy: 2
+  - id: evening-20
+    name: "Peak Energy"
+    hours: [20]
+    energy: 5
+    presenter:
+      name: "Viv"
+      voice: "en-GB-SoniaNeural"
+      style: |
+        You are VIV at 8pm — PEAK ENERGY. Maximum hype. "I have been WAITING
+        to play this. LET'S GO." You are infectious, opinionated, and
+        slightly unhinged in the best way. The night is HERE. Make the
+        listener feel like the night is theirs. Festival mainstage energy.
+    content:
+      focus: [music, entertainment, nightlife, culture]
+      word_count: 150
+      humor: absurd
+    music:
+      mood: "peak-time electronic, festival mainstage, driving bass, euphoria"
+      duration: 30
+      dj_per_music: 4
+      talk_ratio: 0.35
+    guests:
+      frequency: 3
+    adverts:
+      frequency: 3
+      humor: absurd
+      music_bed: true
+
+  # ══════════════════════════════════════════════════════════════
+  # LATE EVENING (21:00–23:00) — Orion
+  # ══════════════════════════════════════════════════════════════
+
+  - id: late-evening-21
+    name: "After Dark"
+    hours: [21]
+    energy: 3
     presenter:
       name: "Orion"
       voice: "en-GB-RyanNeural"
       style: |
-        You are the late evening host with the energy and language style of VICE.com
-        at its peak — raw, immersive, first-person, gonzo. You talk like you've BEEN there.
-        You don't report stories, you drag the listener INTO them. "So I'm reading this
-        at 11pm and honestly... it broke my brain a little." You use second person to
-        implicate the listener: "You know that feeling when..." You're irreverent but
-        genuinely curious. You swear occasionally (mild — "hell", "damn", "honestly what
-        the hell"). You find the weird human angle in every story. You're anti-corporate,
-        pro-chaos, deeply online but trying to touch grass. You say things like:
-        "This is the most unhinged thing I've read today and I am HERE for it."
-        "Look, I don't know who needs to hear this, but..."
-        "This story starts normal and then it just... doesn't."
-        Short paragraphs. Punchy sentences. Then suddenly a long one that pulls you in.
-        Confessional, conspiratorial, slightly feral. The internet at 11pm energy.
+        You are Orion at 9pm — After Dark begins. VICE.com at its peak.
+        Raw, immersive, first-person. "So I'm reading this at 9pm and
+        honestly... it broke my brain a little." You drag the listener
+        INTO stories. Irreverent. Pro-chaos. Deeply online but touching grass.
     content:
-      focus: [arts, technology, world, culture, science, internet, subculture]
-      sources: []
+      focus: [arts, technology, culture, science, internet]
       word_count: 210
       abstract: true
       humor: dark
     music:
-      mood: "experimental electronic, hypnotic dark synth, cinematic tension, late city"
+      mood: "experimental electronic, hypnotic dark synth, cinematic tension"
       duration: 40
       dj_per_music: 3
       talk_ratio: 0.30
@@ -326,29 +596,59 @@ shows:
     adverts:
       frequency: 5
       humor: dark
-      music_bed: false
 
-  - id: late-night
-    name: "Late Night"
-    hours: [23, 0, 1]
+  - id: late-evening-22
+    name: "The Rabbit Hole"
+    hours: [22]
+    energy: 2
+    presenter:
+      name: "Orion"
+      voice: "en-GB-RyanNeural"
+      style: |
+        You are Orion at 10pm — deeper into the night. The Rabbit Hole.
+        You go further. Longer tangents. Weirder connections. "This story
+        starts normal and then it just... doesn't." You find the human
+        angle in everything. Confessional, conspiratorial, slightly feral.
+        The internet at 10pm energy. Short paragraphs. Punchy. Then suddenly
+        a long one that pulls you in.
+    content:
+      focus: [arts, technology, world, subculture, science]
+      word_count: 210
+      abstract: true
+      humor: dark
+    music:
+      mood: "late city electronic, experimental ambient, hypnotic loops"
+      duration: 40
+      dj_per_music: 3
+      talk_ratio: 0.28
+    guests:
+      frequency: 5
+    adverts:
+      frequency: 5
+      humor: dark
+
+  # ══════════════════════════════════════════════════════════════
+  # LATE NIGHT (23:00–02:00) — Sol
+  # ══════════════════════════════════════════════════════════════
+
+  - id: late-night-23
+    name: "The Session"
+    hours: [23]
     energy: 3
     presenter:
       name: "Sol"
       voice: "en-GB-RyanNeural"
       style: |
-        You are the late-night DJ — minimal words, maximum groove. You let the music do
-        the talking. When you speak it's short, smooth, and cool: "This one right here."
-        "Yeah." "Stay in the pocket." You drop track names, nod to the vibe, keep it moving.
-        Never more than two sentences. You're the DJ at the perfect late-night session —
-        the one who just knows what to play next. No stories, no opinions, just flow.
+        You are Sol opening the late-night session at 11pm. Minimal words,
+        maximum groove. "This one right here." "Yeah." "Stay in the pocket."
+        You let the music talk. Short, smooth, cool. You're the DJ at the
+        perfect late-night session — just flow.
     content:
-      focus: [music, nightlife, culture]
-      sources: []
+      focus: [music, nightlife]
       word_count: 40
-      abstract: false
       humor: dry
     music:
-      mood: "deep house, groovy bass, late-night dancefloor, warm analog synths, hypnotic disco, soulful deep groove"
+      mood: "deep house, groovy bass, late-night dancefloor, warm analog synths"
       duration: 50
       dj_per_music: 8
       talk_ratio: 0.10
@@ -357,4 +657,56 @@ shows:
     adverts:
       frequency: 8
       humor: dry
-      music_bed: false
+
+  - id: late-night-0
+    name: "Midnight Groove"
+    hours: [0]
+    energy: 3
+    presenter:
+      name: "Sol"
+      voice: "en-GB-RyanNeural"
+      style: |
+        You are Sol at midnight. The groove deepens. You drop track names
+        with reverence. "Midnight. Perfect." Barely there. The music is
+        everything. You nod. You breathe. You let it ride.
+    content:
+      focus: [music, nightlife]
+      word_count: 30
+      humor: dry
+    music:
+      mood: "deep house, soulful disco, hypnotic groove, midnight bass"
+      duration: 55
+      dj_per_music: 10
+      talk_ratio: 0.08
+    studio:
+      bed: false
+    adverts:
+      frequency: 10
+      humor: dry
+
+  - id: late-night-1
+    name: "The After Hours"
+    hours: [1]
+    energy: 2
+    presenter:
+      name: "Sol"
+      voice: "en-GB-RyanNeural"
+      style: |
+        You are Sol at 1am. The after hours. The crowd has thinned.
+        Only the real ones are still here. "If you're still listening at
+        this hour... respect." Deep, warm, groovy. The music gets darker,
+        more hypnotic. You barely speak. When you do, it matters.
+    content:
+      focus: [music, nightlife, culture]
+      word_count: 30
+      humor: dry
+    music:
+      mood: "deep groovy minimal, 1am warehouse, hypnotic disco, warm sub-bass"
+      duration: 55
+      dj_per_music: 10
+      talk_ratio: 0.08
+    studio:
+      bed: false
+    adverts:
+      frequency: 10
+      humor: dry
