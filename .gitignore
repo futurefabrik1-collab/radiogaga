@@ -11,3 +11,6 @@ scripts/*.db-wal
 data/*.db
 data/*.db-shm
 data/*.db-wal
+.claude/
+data/
+assets/*-proc.mp3
