@@ -41,6 +41,7 @@ const SILENCE_PATH = join(TMP_DIR, 'silence.mp3');
 const SILENCE_PAD_PATH = join(TMP_DIR, 'silence-pad.mp3');
 const JINGLE_SHORT = { path: join(ROOT, 'assets', 'jingle-aimusic-short.mp3'), title: 'radioGAGA', duration: 24 };
 const JINGLE_LONG = { path: join(ROOT, 'assets', 'jingle-aimusic-long.mp3'), title: 'radioGAGA AI Music', duration: 72 };
+const INTRO_DIALOGUE = { path: join(ROOT, 'assets', 'intro-dialogue.mp3'), title: 'radioGAGA Intro', duration: 30 };
 const STING_NEWSFLASH = { path: join(ROOT, 'assets', 'jingle-newsflash.mp3'), title: 'radioGAGA Newsflash', duration: 10 };
 const STING_CHANCE = 0.2; // 20% chance to play sting between segments
 const JINGLE_INTERVAL_MS = 15 * 60 * 1000;            // play short jingle every 15 min
@@ -319,6 +320,12 @@ async function runLoop() {
 
       if ((!firstJinglePlayed || jingleDue || showChanged) && ffmpegProc) {
         // First jingle after start: play the long version (buffer for new listeners)
+        // Cold start: intro dialogue → long jingle. After that: short jingle.
+        if (!firstJinglePlayed && existsSync(INTRO_DIALOGUE.path)) {
+          console.log(`[stream] Cold start: playing intro dialogue`);
+          logBroadcast({ type: 'jingle', title: INTRO_DIALOGUE.title, slot: slot.id, generator: 'pre-produced', source: 'ai-generated-jingle' });
+          try { await pipeSegment({ ...INTRO_DIALOGUE, type: 'jingle' }, ffmpegProc.stdin); } catch {}
+        }
         const jingle = !firstJinglePlayed ? JINGLE_LONG : JINGLE_SHORT;
 
         if (existsSync(jingle.path)) {

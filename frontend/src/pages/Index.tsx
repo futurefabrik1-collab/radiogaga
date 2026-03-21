@@ -101,7 +101,7 @@ export default function Index() {
         className="fixed z-30 pointer-events-none"
         style={{
           top: '25%',
-          right: '15%',
+          right: '8%',
           transform: 'rotate(30deg)',
           opacity: loaded ? Math.max(0.1, 0.5 - scrollProgress * 2) : 0,
           transition: 'opacity 1s',
