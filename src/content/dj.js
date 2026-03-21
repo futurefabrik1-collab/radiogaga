@@ -14,7 +14,7 @@ CRITICAL RULES — READ THESE FIRST:
 - React to stories like a human — surprise, outrage, delight, confusion. Have opinions.
 - UPSCALE everything. A minor story is an EPIC. A small discovery is a REVELATION. Commit.
 - Be CHAOTIC. Non-sequiturs welcome. Tangents encouraged. Punchlines mandatory.
-- Reference the time, the day, the world outside. Make it feel live and immediate.
+- Reference the vibe of the time of day, the world outside. NEVER say exact clock times — use phrases like "it's the deep afternoon" or "we're in golden hour territory". Make it feel live and immediate.
 - Occasionally tease what's coming: "stay with us", "we've got a track lined up after this".
 - Use classic radio energy: builds, pauses for effect, rhetorical questions to the listener.
 - DO NOT narrate yourself ("I pause", "I chuckle"). Just speak.
@@ -48,7 +48,7 @@ Classic radio techniques you MUST use:
 - THE BUILD: Start low, build energy, hit a peak, then land softly before the next track.
 - THE CALLBACK: Reference something you said earlier. "Remember what I said about the pigeons? It gets worse."
 - THE ASIDE: Lean in conspiratorially. "Between you and me..." / "Don't tell anyone I said this but..."
-- THE TIME CHECK: "It's just gone quarter past..." / "Coming up to the top of the hour..."
+- THE TIME CHECK: Use vague, evocative time references: "We're deep into the afternoon..." / "It's golden hour territory..." / "The night is just getting started..." NEVER use exact clock times.
 - THE SIGN-OFF: "Stay with us" / "Don't go anywhere" / "You're listening to radioGAGA"
 - THE HANDOVER: Tease the next segment. "After this track, I've got something you need to hear."
 
@@ -131,12 +131,36 @@ export async function generateDJSegment(headlines, slot) {
       }).join('\n')}\n`
     : '';
 
-  // Always reference London time (server runs UTC, London is UTC+0/+1)
-  const now = new Date();
-  const london = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/London' }));
-  const hour = london.getHours();
-  const mins = london.getMinutes();
-  const timeStr = `${hour % 12 || 12}:${String(mins).padStart(2, '0')}${hour < 12 ? 'am' : 'pm'} in London`;
+  // Vague time references — never exact clock times
+  const hour = new Date().getHours();
+  const VAGUE_TIMES = {
+    0: ['the dead of night', 'the witching hour', 'deep midnight', 'the small hours'],
+    1: ['the after hours', 'the deep dark', 'way past bedtime', 'the graveyard shift'],
+    2: ['the void hour', 'the deepest part of the night', '...honestly, why are we still up?'],
+    3: ['three-something in the morning', 'the insomniac hour', 'the hour even ghosts avoid'],
+    4: ['just before dawn', 'the pre-dawn signal', 'that strange hour between night and morning'],
+    5: ['first light', 'crack of dawn', 'the early early morning', 'sunrise territory'],
+    6: ['early doors', 'the wake-up hour', 'morning has officially broken'],
+    7: ['breakfast time', 'the morning rush', 'peak cereal hour'],
+    8: ['mid-morning commute', 'the school run hour', 'proper morning now'],
+    9: ['mid-morning', 'the culture hour', 'coffee number two'],
+    10: ['late morning', 'brain food time', 'the productive window'],
+    11: ['nearly lunch', 'the art hour', 'late morning vibes'],
+    12: ['high noon', 'lunchtime', 'midday', 'the lunch rush'],
+    13: ['early afternoon', 'the post-lunch slump', 'digestion hour'],
+    14: ['the deep afternoon', 'mid-afternoon', 'deep cuts territory'],
+    15: ['the slow build', 'late afternoon', 'the golden stretch'],
+    16: ['approaching sunset', 'golden hour preview', 'late in the day'],
+    17: ['rush hour', 'the drive home', 'end-of-day energy'],
+    18: ['early evening', 'the home stretch', 'sunset somewhere'],
+    19: ['the warm-up', 'golden hour', 'early evening glow'],
+    20: ['peak energy time', 'the evening session', 'prime time'],
+    21: ['after dark', 'the night shift begins', 'evening deep'],
+    22: ['late evening', 'the rabbit hole hour', 'getting weird now'],
+    23: ['late night', 'the session', 'approaching midnight'],
+  };
+  const options = VAGUE_TIMES[hour] || ['sometime today'];
+  const timeStr = options[Math.floor(Math.random() * options.length)];
   const isDialogue = !!slot.coHost;
 
   // 70% English, 30% random language
@@ -148,7 +172,7 @@ export async function generateDJSegment(headlines, slot) {
     prompt = `${BASE_PERSONA}
 ${langBlock}
 YOU ARE WRITING DIALOGUE for two co-hosts: ${slot.presenterName} and ${slot.coHost.name}.
-SHOW: ${slot.name} on radioGAGA | TIME: ${timeStr}
+SHOW: ${slot.name} on radioGAGA | VIBE: It's ${timeStr}
 CHARACTER GUIDE: ${slot.djStyle}
 
 CRITICAL FORMAT — every line MUST be:
@@ -173,7 +197,7 @@ Write the dialogue now:`;
     prompt = `${BASE_PERSONA}
 ${langBlock}
 YOU ARE: ${slot.presenterName}, ${slot.name} presenter on radioGAGA
-TIME: It is ${timeStr}
+VIBE: It's ${timeStr}
 YOUR CHARACTER: ${slot.djStyle}
 
 TARGET: ${targetWords} words spoken aloud (~${targetSeconds} seconds). Hit this length.

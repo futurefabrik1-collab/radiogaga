@@ -345,7 +345,7 @@ async function runLoop() {
       continue;
     }
 
-    // 0a. Cold start: intro dialogue + jingle (ONCE only)
+    // 0a. Cold start: intro dialogue only (ONCE)
     if (!firstJinglePlayed && ffmpegProc) {
       firstJinglePlayed = true;
       lastJingleTime = Date.now();
@@ -354,11 +354,8 @@ async function runLoop() {
       lastStreamSlotId = slot.id;
 
       if (existsSync(INTRO_DIALOGUE.path)) {
-        console.log('[stream] Cold start: intro dialogue → jingle');
+        console.log('[stream] Cold start: intro dialogue');
         try { await pipeSegment({ ...INTRO_DIALOGUE, type: 'jingle' }, ffmpegProc.stdin); } catch {}
-      }
-      if (existsSync(JINGLE_SHORT.path)) {
-        try { await pipeSegment({ ...JINGLE_SHORT, type: 'jingle' }, ffmpegProc.stdin); } catch {}
       }
     }
 

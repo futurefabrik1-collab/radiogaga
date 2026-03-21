@@ -36,7 +36,7 @@ const NEWS_ANCHOR = {
 const NEWS_PROMPT = (headlines, hour) => `You are writing a POSITIVE news bulletin for radioGAGA, an AI-generated radio station.
 
 ANCHOR: Clara Fontaine — classic, warm, authoritative newsreader.
-TIME: The ${hour}:00 news.
+TIME: the news.
 
 CONTENT RULES:
 1. Select 3–4 stories from the headlines below that are POSITIVE — breakthroughs, kindness, achievements, progress, community, nature, science wins, cultural milestones.
@@ -49,7 +49,7 @@ CONTENT RULES:
 Use real names of people, places, companies, and organisations accurately.
 
 FORMAT:
-- Open with: "This is the ${hour}:00 news on radioGAGA. I'm Clara Fontaine."
+- Open with: "This is the news on radioGAGA. I'm Clara Fontaine."
 - After the headlines, transition to the deep dive: "And now, a story that caught my eye today..." or similar
 - End with: "And that's the news. More throughout the day on radioGAGA."
 - Total length: 250–350 words. Warm, clear, classic radio delivery.
