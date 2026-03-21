@@ -208,12 +208,26 @@ NOW SPEAK — live on air, directly to the listener:`;
 
     // For dialogue shows, render multi-voice audio
     if (isDialogue) {
-      const speakers = {
-        [slot.presenterName]: slot.voice,
-        [slot.coHost.name]: slot.coHost.voice,
-      };
+      let speakers;
+      let fallbackVoice;
+      if (lang) {
+        // Foreign language: use two different voices from that language's pool
+        const voices = lang.voices || [lang.voice];
+        speakers = {
+          [slot.presenterName]: voices[0],
+          [slot.coHost.name]: voices[1] || voices[0],
+        };
+        fallbackVoice = voices[0];
+        console.log(`[dj] Dialogue in ${lang.name} — using native voices`);
+      } else {
+        speakers = {
+          [slot.presenterName]: slot.voice,
+          [slot.coHost.name]: slot.coHost.voice,
+        };
+        fallbackVoice = slot.voice;
+      }
       const { renderDialogue: render } = await import('./dialogue.js');
-      const path = await render(raw, speakers, slot.voice, {
+      const path = await render(raw, speakers, fallbackVoice, {
         studioBed: slot.studioBed ?? true,
         energy: slot.energy,
       });
