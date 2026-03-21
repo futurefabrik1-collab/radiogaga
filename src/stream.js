@@ -9,7 +9,7 @@
 
 import { spawn, execFile } from 'child_process';
 import { promisify } from 'util';
-import { existsSync, mkdirSync } from 'fs';
+import { existsSync, mkdirSync, appendFileSync } from 'fs';
 import { unlink } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -172,9 +172,10 @@ async function crossfadeMusicVoice(musicPath, voicePath, overlapS = 4) {
 }
 
 // Decode an MP3 file to raw s16le PCM and pipe into FFmpeg's stdin.
-// This eliminates MP3 frame boundary errors when concatenating files.
 function pipeFile(filePath, stdin) {
   return new Promise((resolve) => {
+    if (!stdin || stdin.destroyed) { resolve(); return; }
+
     const decoder = spawn('ffmpeg', [
       '-i', filePath,
       '-f', 's16le',
@@ -183,9 +184,10 @@ function pipeFile(filePath, stdin) {
       'pipe:1',
     ], { stdio: ['ignore', 'pipe', 'pipe'] });
 
-    decoder.stderr.on('data', () => {}); // suppress ffmpeg stderr
-    decoder.stdout.on('error', () => {});
-    decoder.on('error', (err) => { console.error('[stream] Decode error:', err.message); resolve(); });
+    decoder.stderr.on('data', () => {});
+    decoder.stdout.on('error', () => { decoder.kill(); resolve(); });
+    stdin.on('error', () => { decoder.kill(); resolve(); });
+    decoder.on('error', () => resolve());
 
     decoder.stdout.pipe(stdin, { end: false });
     decoder.on('close', resolve);
@@ -508,6 +510,11 @@ async function runLoop() {
       }
 
       logBroadcast({ type: segment.type, title: segment.title, slot: segment.slot, generator: segment.generator || 'openrouter+edge-tts', voice: segment.voice, source: segment.source || 'ai-generated' });
+      // Append to human-readable dialogue log
+      if (segment.script) {
+        const logLine = `[${new Date().toISOString()}] [${segment.type.toUpperCase()}] ${segment.title || ''}\n${segment.script}\n---\n`;
+        try { appendFileSync(join(ROOT, 'data', 'dialogue-log.txt'), logLine); } catch {}
+      }
       try {
         if (!ffmpegProc) continue;
         await pipeSegment(segment, ffmpegProc.stdin);

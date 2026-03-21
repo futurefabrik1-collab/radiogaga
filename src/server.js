@@ -160,6 +160,17 @@ app.get('/api/producer-decisions', (req, res) => {
   res.json(getRecentDecisions(parseInt(req.query.limit) || 20));
 });
 
+// Dialogue log — human-readable transcript of all spoken content
+app.get('/api/dialogue-log', (req, res) => {
+  try {
+    const log = readFileSync(join(process.cwd(), 'data', 'dialogue-log.txt'), 'utf8');
+    const lines = log.split('---\n').filter(Boolean).slice(-50).reverse();
+    res.type('text/plain').send(lines.join('\n---\n'));
+  } catch {
+    res.type('text/plain').send('No dialogue logged yet.');
+  }
+});
+
 // Serve clip files
 app.use('/clips', express.static(join(process.cwd(), 'data', 'clips')));
 
