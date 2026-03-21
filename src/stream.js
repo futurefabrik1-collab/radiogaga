@@ -52,6 +52,38 @@ const JINGLE_INTERVAL_MS = 15 * 60 * 1000;            // play short jingle every
 let ffmpegProc = null;
 let running = false;
 let silenceReady = false;
+let lastPlayedTypes = [];      // rolling window of last 5 played segment types
+const MAX_TYPE_HISTORY = 5;
+
+// Sequence validator — prevents chaotic scheduling
+function validateSequence(segment) {
+  const type = segment.type;
+  const last = lastPlayedTypes[lastPlayedTypes.length - 1];
+  const last2 = lastPlayedTypes.slice(-2);
+
+  // Rule 1: never play same type back-to-back (except music)
+  if (type !== 'music' && type === last) return { ok: false, reason: `back-to-back ${type}` };
+
+  // Rule 2: max 2 jingles in any 5-segment window
+  if (type === 'jingle' && lastPlayedTypes.filter(t => t === 'jingle').length >= 2) return { ok: false, reason: 'too many jingles' };
+
+  // Rule 3: max 1 news per hour (checked by type in recent history)
+  if (type === 'news' && lastPlayedTypes.includes('news')) return { ok: false, reason: 'duplicate news' };
+
+  // Rule 4: max 1 weather per hour
+  if (type === 'weather' && lastPlayedTypes.includes('weather')) return { ok: false, reason: 'duplicate weather' };
+
+  // Rule 5: no advert immediately after advert
+  if (type === 'advert' && last === 'advert') return { ok: false, reason: 'back-to-back ads' };
+
+  return { ok: true };
+}
+
+function recordPlayed(type) {
+  lastPlayedTypes.push(type);
+  if (lastPlayedTypes.length > MAX_TYPE_HISTORY) lastPlayedTypes.shift();
+}
+
 let lastFallbackTrack = null;  // track info for back-announce on archive fallback
 let fallbackTrackCount = 0;     // counts archive fallback tracks for ad cadence
 let lastShoutoutTime = 0;       // timestamp of last shoutout played
@@ -438,10 +470,25 @@ async function runLoop() {
       }
     }}
 
-    // 1. Real content from queue
+    // 1. Real content from queue (with sequence validation)
     if (queue.length > 0) {
+      // Peek at next segment — validate before shifting
+      const next = queue.peek();
+      const validation = validateSequence(next);
+      if (!validation.ok) {
+        // Skip this segment — try the one after it, or defer
+        const skipped = queue.shift();
+        console.log(`[stream] Sequence skip: ${skipped.type} "${skipped.title?.slice(0, 30)}" — ${validation.reason}`);
+        // Don't re-queue news/weather (prevents infinite loop of duplicates)
+        // Do re-queue music/dj/advert at the back for later
+        if (!['news', 'weather', 'jingle'].includes(skipped.type)) {
+          queue.push(skipped);
+        }
+        continue;
+      }
+
       const segment = queue.shift();
-      const isAdvert = segment.type === 'advert' || (segment.title || '').toLowerCase().includes('decent');
+      const isAdvert = segment.type === 'advert' || (segment.title || '').toLowerCase().includes('core message');
 
       // Crossfade: if this is a music segment and the next queued item is DJ/talk,
       // merge the voice over the music tail for seamless radio flow
@@ -463,10 +510,11 @@ async function runLoop() {
         queue.unshift(nextDJ);
       }
 
-      logBroadcast({ type: segment.type, title: segment.title, slot: segment.slot, generator: segment.generator || 'groq+edge-tts', model: segment.model || 'llama-3.3-70b-versatile', voice: segment.voice, source: segment.source || 'ai-generated' });
+      logBroadcast({ type: segment.type, title: segment.title, slot: segment.slot, generator: segment.generator || 'openrouter+edge-tts', voice: segment.voice, source: segment.source || 'ai-generated' });
       try {
-        if (!ffmpegProc) continue; // FFmpeg died between check and pipe
+        if (!ffmpegProc) continue;
         await pipeSegment(segment, ffmpegProc.stdin);
+        recordPlayed(segment.type);
       } catch (err) {
         console.error('[stream] Segment pipe failed:', err.message);
       }
