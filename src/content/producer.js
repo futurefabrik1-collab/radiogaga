@@ -28,6 +28,7 @@ import { generateGuestSegment } from './guest.js';
 import { generateNewsBulletin } from './news.js';
 import { generateWeatherForecast } from './weather.js';
 import { generateAIAnnouncement } from './aiAnnouncement.js';
+import { generateReportage } from './reportage.js';
 import { existsSync } from 'node:fs';
 import { getNextListenerAd, incrementAdPlayCount } from '../db.js';
 import { initFoleyPool, startBedWorker } from './studioFx.js';
@@ -107,6 +108,7 @@ let cycleCount = 0;       // full DJ+music cycles since last advert
 let lastSlotId = null;
 let lastTrackInfo = null; // { title, creator, mood } — for back-announce after track plays
 let lastNewsHour = -1;   // prevent duplicate news per hour
+let lastReportageHour = -1; // one reportage per hour
 let lastTalkTime = Date.now(); // timestamp of last talk segment queued
 let lastAIAnnouncementTime = 0; // timestamp of last AI announcement
 const AI_ANNOUNCEMENT_INTERVAL_MS = 33 * 60 * 1000; // ~3% of airtime: one every 33 min
@@ -394,6 +396,22 @@ async function loop() {
     if (currentMinute < 5 && currentHour !== lastNewsHour) {
       console.log(`[producer] Scheduling ${currentHour}:00 news bulletin`);
       produceNewsBulletin().catch(() => {});
+    }
+
+    // Hourly reportage — fires mid-hour (minutes 20-25), one per hour
+    if (currentMinute >= 20 && currentMinute < 25 && currentHour !== lastReportageHour) {
+      lastReportageHour = currentHour;
+      console.log(`[producer] Scheduling reportage for ${slot.name}`);
+      (async () => {
+        try {
+          const reportage = await generateReportage(slot, headlines);
+          queue.push(reportage);
+          lastTalkTime = Date.now();
+          console.log(`[producer] Reportage queued: ${reportage.title}`);
+        } catch (err) {
+          console.error('[producer] Reportage failed:', err.message);
+        }
+      })();
     }
 
     // Emergency gap-fill: if queue is critically thin, drop in a catalog advert

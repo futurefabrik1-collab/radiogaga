@@ -10,6 +10,7 @@ const SEGMENT_LABELS: Record<string, string> = {
   dj: "PRESENTER", music: "MUSIC", advert: "AD BREAK", news: "NEWS",
   weather: "WEATHER", guest: "GUEST", jingle: "JINGLE", shoutout: "SHOUTOUT",
   "track-intro": "INTRO", "track-outro": "OUTRO", "ai-announcement": "AI MESSAGE",
+  reportage: "REPORTAGE",
 };
 
 function useShows() {
