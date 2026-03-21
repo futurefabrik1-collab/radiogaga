@@ -92,6 +92,13 @@ export async function generateAIAnnouncement() {
   });
 
   const script = response.response.trim();
+  console.log(`[ai-announce] Content: "${script.slice(0, 100)}..."`);
+  if (lang) {
+    try {
+      const tr = await ollama.generate({ prompt: `Translate to English. Output ONLY the translation:\n\n${script}`, options: { temperature: 0.3, num_predict: 120 } });
+      console.log(`[ai-announce] Translation: "${tr.response.trim().slice(0, 120)}..."`);
+    } catch {}
+  }
   const voice = lang ? lang.voice : AI_VOICE;
   const { path } = await textToMp3(script, voice, { energy: 2 });
 

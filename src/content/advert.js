@@ -180,6 +180,12 @@ export async function generateAdvert(slot) {
 
   const script = response.response.trim();
   console.log(`[advert] Script: "${script.slice(0, 80)}..."`);
+  if (lang) {
+    try {
+      const tr = await ollama.generate({ prompt: `Translate to English. Output ONLY the translation:\n\n${script}`, options: { temperature: 0.3, num_predict: 120 } });
+      console.log(`[advert] Translation: "${tr.response.trim().slice(0, 100)}..."`);
+    } catch {}
+  }
 
   // TTS — use language-matched voice or English ad voice
   const voice = lang ? lang.voice : pickAdVoice(slot?.voice);

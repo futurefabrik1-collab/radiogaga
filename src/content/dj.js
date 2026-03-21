@@ -216,7 +216,20 @@ NOW SPEAK — live on air, directly to the listener:`;
     let raw = response.response.trim();
 
     const title = selected[0]?.title?.slice(0, 60) || 'DJ Segment';
-    console.log(`[dj] Script ready (${slot.name})`);
+    const langLabel = lang ? ` [${lang.name}]` : '';
+    console.log(`[dj] Script ready (${slot.name})${langLabel}`);
+    console.log(`[dj] Content: "${raw.slice(0, 120)}..."`);
+
+    // Log translation for foreign language segments
+    if (lang) {
+      try {
+        const translation = await ollama.generate({
+          prompt: `Translate this ${lang.name} radio script to English. Output ONLY the translation, nothing else:\n\n${raw}`,
+          options: { temperature: 0.3, num_predict: Math.ceil(raw.split(/\s+/).length * 1.5) },
+        });
+        console.log(`[dj] Translation: "${translation.response.trim().slice(0, 200)}..."`);
+      } catch {}
+    }
 
     // For dialogue shows, render multi-voice audio
     if (isDialogue) {

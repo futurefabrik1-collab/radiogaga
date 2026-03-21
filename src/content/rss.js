@@ -124,7 +124,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 
 const USED_FILE = join(process.cwd(), 'data', 'used-headlines.json');
-const USED_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const USED_MAX_AGE_MS = 6 * 60 * 60 * 1000; // 6 hours — allows headlines to recirculate faster
 let usedHeadlines = new Map(); // title → timestamp
 
 // Load from disk on startup

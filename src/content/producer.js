@@ -122,8 +122,16 @@ async function refreshHeadlines() {
 }
 
 async function produceDJSegment(slot) {
-  const current = await refreshHeadlines();
-  if (!current.length) { console.warn('[producer] No headlines'); return; }
+  let current = await refreshHeadlines();
+  // If all headlines are used, generate from show's focus topics instead
+  if (!current.length) {
+    console.log('[producer] No fresh headlines — generating from show focus topics');
+    current = slot.contentFocus.map(f => ({
+      title: `Talk about something fascinating related to ${f}`,
+      description: `Share an interesting thought, fact, or observation about ${f}`,
+      source: 'radioGAGA topic generator',
+    }));
+  }
 
   // Inject listener suggestions into the slot context
   const suggestions = getRecentSuggestions('theme', 3);
