@@ -76,9 +76,15 @@ function pickImaginaryLocation() {
   return IMAGINARY_LOCATIONS[Math.floor(Math.random() * IMAGINARY_LOCATIONS.length)];
 }
 
-// Generate a short, in-character presenter intro for a shoutout
+// Generate a short, in-character presenter intro for a shoutout.
+// Uses FIRST NAME ONLY — no full names, no ambiguity filter.
+function extractFirstName(name) {
+  return (name || 'someone').split(/\s+/)[0];
+}
+
 async function generateShoutoutIntro(name, location, isVoice) {
   const slot = getCurrentSlot();
+  const firstName = extractFirstName(name);
   const type = isVoice ? 'voice message' : 'shoutout';
   try {
     const response = await ollama.generate({
@@ -86,18 +92,17 @@ async function generateShoutoutIntro(name, location, isVoice) {
       prompt: `You are ${slot.presenterName}, a radio presenter on radioGAGA.
 Your style: ${slot.djStyle.split('\n')[0]}
 Write a 10–20 word intro for a listener ${type}. Be warm, spontaneous, in character.
-The listener's name is ${name} and they're tuning in from ${location}.
-Use their real name and location. Sound excited to hear from them.
-Output ONLY the spoken words:`,
+The listener's FIRST NAME is ${firstName}${location ? ` and they're tuning in from ${location}` : ''}.
+Use ONLY their first name "${firstName}". Do NOT rename them or make up a fictional name.
+Sound excited to hear from them. Output ONLY the spoken words:`,
       options: { temperature: 0.95, num_predict: 60 },
       stream: false,
     });
     return { text: response.response.trim(), voice: slot.voice, energy: slot.energy };
   } catch {
-    // Fallback if LLM is busy
     const text = isVoice
-      ? `We've got a voice message from ${name} in ${location}... let's hear it!`
-      : `Here's a shoutout from ${name}, tuning in from ${location}...`;
+      ? `We've got a voice message from ${firstName}${location ? ` in ${location}` : ''}... let's hear it!`
+      : `Here's a shoutout from ${firstName}${location ? `, tuning in from ${location}` : ''}...`;
     return { text, voice: slot.voice, energy: slot.energy };
   }
 }

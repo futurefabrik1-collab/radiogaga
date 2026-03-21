@@ -38,24 +38,12 @@ const ICECAST_URL = `icecast://source:${ICECAST.password}@${ICECAST.host}:${ICEC
 const TMP_DIR = join(ROOT, 'tmp');
 const SILENCE_PATH = join(TMP_DIR, 'silence.mp3');
 const SILENCE_PAD_PATH = join(TMP_DIR, 'silence-pad.mp3');
-const JINGLE_PATH = join(ROOT, 'assets', 'jingle.mp3');
-const JINGLE_NIGHT = [
-  { path: join(ROOT, 'assets', 'jingle-nightcode.mp3'), title: 'radioGAGA Nightcode', duration: 91 },
-  { path: join(ROOT, 'assets', 'jingle-afterdark.mp3'), title: 'radioGAGA After Dark', duration: 126 },
-];
-const JINGLE_SUNRISE = [
-  { path: join(ROOT, 'assets', 'jingle-sunrise-1.mp3'), title: 'radioGAGA Sunrise 1', duration: 50 },
-  { path: join(ROOT, 'assets', 'jingle-sunrise-2.mp3'), title: 'radioGAGA Sunrise 2', duration: 70 },
-];
-const JINGLE_AIMUSIC = { path: join(ROOT, 'assets', 'jingle-aimusic.mp3'), title: 'radioGAGA AI Music', duration: 115 };
+const JINGLE_SHORT = { path: join(ROOT, 'assets', 'jingle-aimusic-short.mp3'), title: 'radioGAGA', duration: 24 };
+const JINGLE_LONG = { path: join(ROOT, 'assets', 'jingle-aimusic-long.mp3'), title: 'radioGAGA AI Music', duration: 118 };
 const STING_NEWSFLASH = { path: join(ROOT, 'assets', 'jingle-newsflash.mp3'), title: 'radioGAGA Newsflash', duration: 10 };
 const STING_CHANCE = 0.2; // 20% chance to play sting between segments
-const JINGLE_INTERVAL_MS = 15 * 60 * 1000;            // daytime: every 15 min
-const SPECIAL_JINGLE_INTERVAL_MS = 30 * 60 * 1000;    // night/sunrise: every 30 min
-const AIMUSIC_JINGLE_INTERVAL_MS = 60 * 60 * 1000;    // hourly during daytime (9am-9pm)
+const JINGLE_INTERVAL_MS = 15 * 60 * 1000;            // play short jingle every 15 min
 const NIGHT_HOURS = new Set([21, 22, 23, 0, 1, 2, 3, 4]);   // 9pm–4am
-const SUNRISE_HOURS = new Set([5, 6, 7, 8]);                  // 5am–8am
-const DAYTIME_HOURS = new Set([9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]); // 9am–8pm
 
 let ffmpegProc = null;
 let running = false;
@@ -64,9 +52,7 @@ let lastFallbackTrack = null;  // track info for back-announce on archive fallba
 let fallbackTrackCount = 0;     // counts archive fallback tracks for ad cadence
 let lastShoutoutTime = 0;       // timestamp of last shoutout played
 let lastJingleTime = 0;         // timestamp of last jingle played
-let lastAiMusicJingleTime = 0;  // timestamp of last AI Music hourly jingle
-let nightJingleIndex = 0;       // alternates between Nightcode and After Dark
-let sunriseJingleIndex = 0;     // alternates between Sunrise 1 and 2
+let firstJinglePlayed = false;   // play long jingle only on first load
 let lastStreamSlotId = null;    // detect show transitions
 let pendingIntro = null;         // pre-generated intro for next archive track
 const SHOUTOUT_COOLDOWN_MS = 60_000; // max 1 shoutout per minute
@@ -318,31 +304,20 @@ async function runLoop() {
       continue;
     }
 
-    // 0a. Station jingle — daytime sting every 15 min, night jingles every 30 min (alternating)
+    // 0a. Station jingle — long on first load (cold start buffer), short every 15 min after
     {
       const slot = getCurrentSlot();
-      const hour = new Date().getHours();
-      const isNight = NIGHT_HOURS.has(hour);
-      const isSunrise = SUNRISE_HOURS.has(hour);
-      const interval = (isNight || isSunrise) ? SPECIAL_JINGLE_INTERVAL_MS : JINGLE_INTERVAL_MS;
       const showChanged = lastStreamSlotId && slot.id !== lastStreamSlotId;
-      const jingleDue = Date.now() - lastJingleTime >= interval;
+      const jingleDue = Date.now() - lastJingleTime >= JINGLE_INTERVAL_MS;
       lastStreamSlotId = slot.id;
 
-      if ((jingleDue || showChanged) && ffmpegProc) {
-        let jingle;
-        if (isNight) {
-          jingle = JINGLE_NIGHT[nightJingleIndex % JINGLE_NIGHT.length];
-          nightJingleIndex++;
-        } else if (isSunrise) {
-          jingle = JINGLE_SUNRISE[sunriseJingleIndex % JINGLE_SUNRISE.length];
-          sunriseJingleIndex++;
-        } else {
-          jingle = { path: JINGLE_PATH, title: 'radioGAGA Sting', duration: 29 };
-        }
+      if ((!firstJinglePlayed || jingleDue || showChanged) && ffmpegProc) {
+        // First jingle after start: play the long version (buffer for new listeners)
+        const jingle = !firstJinglePlayed ? JINGLE_LONG : JINGLE_SHORT;
 
         if (existsSync(jingle.path)) {
-          if (showChanged) console.log(`[stream] Show transition → ${slot.name} — playing ${jingle.title}`);
+          if (!firstJinglePlayed) console.log(`[stream] Cold start: ${jingle.title} (long)`);
+          else if (showChanged) console.log(`[stream] Show transition → ${slot.name}`);
           else console.log(`[stream] Periodic: ${jingle.title}`);
           logBroadcast({ type: 'jingle', title: jingle.title, slot: slot.id, generator: 'pre-produced', source: 'ai-generated-jingle' });
           try {
@@ -350,24 +325,8 @@ async function runLoop() {
           } catch (err) {
             console.error('[stream] Jingle pipe failed:', err.message);
           }
+          firstJinglePlayed = true;
           lastJingleTime = Date.now();
-        }
-      }
-    }
-
-    // 0a-2. AI Music hourly jingle — 9am to 8pm, roughly every hour
-    {
-      const hour = new Date().getHours();
-      if (DAYTIME_HOURS.has(hour) && Date.now() - lastAiMusicJingleTime >= AIMUSIC_JINGLE_INTERVAL_MS && ffmpegProc) {
-        if (existsSync(JINGLE_AIMUSIC.path)) {
-          console.log(`[stream] Hourly: ${JINGLE_AIMUSIC.title}`);
-          logBroadcast({ type: 'jingle', title: JINGLE_AIMUSIC.title, slot: getCurrentSlot().id, generator: 'pre-produced', source: 'ai-generated-jingle' });
-          try {
-            await pipeSegment({ ...JINGLE_AIMUSIC, type: 'jingle' }, ffmpegProc.stdin);
-          } catch (err) {
-            console.error('[stream] AI Music jingle failed:', err.message);
-          }
-          lastAiMusicJingleTime = Date.now();
         }
       }
     }

@@ -113,8 +113,10 @@ export async function generateDJSegment(headlines, slot) {
       }).join('\n')}\n`
     : '';
 
-  const hour = slot.hours[0];
-  const timeStr = `${hour}:00${hour < 12 ? 'am' : hour === 12 ? 'pm' : ' in the ' + (hour < 17 ? 'afternoon' : hour < 21 ? 'evening' : 'night')}`;
+  const now = new Date();
+  const hour = now.getHours();
+  const mins = now.getMinutes();
+  const timeStr = `${hour % 12 || 12}:${String(mins).padStart(2, '0')}${hour < 12 ? 'am' : 'pm'}`;
   const isDialogue = !!slot.coHost;
 
   let prompt;
