@@ -320,16 +320,16 @@ async function runLoop() {
 
       if ((!firstJinglePlayed || jingleDue || showChanged) && ffmpegProc) {
         // First jingle after start: play the long version (buffer for new listeners)
-        // Cold start: intro dialogue → long jingle. After that: short jingle.
+        // Cold start: intro dialogue → short jingle → feed
         if (!firstJinglePlayed && existsSync(INTRO_DIALOGUE.path)) {
-          console.log(`[stream] Cold start: playing intro dialogue`);
+          console.log(`[stream] Cold start: intro dialogue → short jingle`);
           logBroadcast({ type: 'jingle', title: INTRO_DIALOGUE.title, slot: slot.id, generator: 'pre-produced', source: 'ai-generated-jingle' });
           try { await pipeSegment({ ...INTRO_DIALOGUE, type: 'jingle' }, ffmpegProc.stdin); } catch {}
         }
-        const jingle = !firstJinglePlayed ? JINGLE_LONG : JINGLE_SHORT;
+        const jingle = JINGLE_SHORT; // always short — long jingle retired
 
         if (existsSync(jingle.path)) {
-          if (!firstJinglePlayed) console.log(`[stream] Cold start: ${jingle.title} (long)`);
+          if (!firstJinglePlayed) console.log(`[stream] Cold start: ${jingle.title}`);
           else if (showChanged) console.log(`[stream] Show transition → ${slot.name}`);
           else console.log(`[stream] Periodic: ${jingle.title}`);
           logBroadcast({ type: 'jingle', title: jingle.title, slot: slot.id, generator: 'pre-produced', source: 'ai-generated-jingle' });
