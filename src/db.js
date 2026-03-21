@@ -140,6 +140,17 @@ db.exec(`
   );
 `);
 
+// ── Indexes ───────────────────────────────────────────────────────────────────
+const indexes = [
+  'CREATE INDEX IF NOT EXISTS idx_broadcast_played_at ON broadcast_history(played_at)',
+  'CREATE INDEX IF NOT EXISTS idx_suggestions_type_used ON suggestions(type, used, created_at)',
+  'CREATE INDEX IF NOT EXISTS idx_listener_adverts_status ON listener_adverts(moderation_status, play_count, created_at)',
+  'CREATE INDEX IF NOT EXISTS idx_donations_message ON donations(message)',
+];
+for (const sql of indexes) {
+  try { db.exec(sql); } catch {}
+}
+
 // ── Listener helpers ────────────────────────────────────────────────────────
 
 export function upsertListener({ telegram_id, username, first_name, location }) {

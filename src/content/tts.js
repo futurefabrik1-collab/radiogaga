@@ -72,7 +72,7 @@ export async function textToMp3(text, voiceOverride = null, opts = {}) {
     `--pitch=${prosody.pitch}`,
     '--text', text,
     '--write-media', outPath,
-  ]);
+  ], { timeout: 30_000 }); // 30s timeout — edge-tts can hang on Microsoft endpoint
 
   return { path: outPath, voice };
 }

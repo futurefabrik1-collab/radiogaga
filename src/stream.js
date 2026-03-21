@@ -356,7 +356,7 @@ async function runLoop() {
 
       // Crossfade: if this is a music segment and the next queued item is DJ/talk,
       // merge the voice over the music tail for seamless radio flow
-      if (segment.type === 'music' && queue.length > 0 && queue.items[0]?.type === 'dj') {
+      if (segment.type === 'music' && queue.length > 0 && queue.peek()?.type === 'dj') {
         const nextDJ = queue.shift();
         const merged = await crossfadeMusicVoice(segment.path, nextDJ.path, 5);
         if (merged && existsSync(merged)) {
@@ -371,7 +371,7 @@ async function runLoop() {
           continue;
         }
         // Crossfade failed — put DJ segment back and play separately
-        queue.items.unshift(nextDJ);
+        queue.unshift(nextDJ);
       }
 
       logBroadcast({ type: segment.type, title: segment.title, slot: segment.slot, generator: segment.generator || 'groq+edge-tts', model: segment.model || 'llama-3.3-70b-versatile', voice: segment.voice, source: segment.source || 'ai-generated' });

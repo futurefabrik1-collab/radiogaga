@@ -1,6 +1,7 @@
 // Express API server — frontend polls this for now-playing info.
 
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import multer from 'multer';
 import { join } from 'node:path';
 import { mkdirSync, existsSync } from 'node:fs';
@@ -33,10 +34,18 @@ const upload = multer({
 
 const PORT = process.env.PORT || 3000;
 const API_TOKEN = process.env.API_TOKEN;
-const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
+const CORS_ORIGIN = process.env.CORS_ORIGIN || 'https://www.radiogaga.ai';
 
 const app = express();
 app.use(express.json());
+
+// Rate limiting — protect public endpoints from abuse
+const writeLimit = rateLimit({ windowMs: 60 * 60 * 1000, max: 5, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many submissions — try again later' } });
+const readLimit = rateLimit({ windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false });
+app.use('/api/advert', writeLimit);
+app.use('/api/shoutout', writeLimit);
+app.use('/api/request', writeLimit);
+app.use('/api/show-idea', writeLimit);
 
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', CORS_ORIGIN);
@@ -55,6 +64,12 @@ function requireAuth(req, res, next) {
 }
 
 // Current playing info
+// Cached shows list — never changes at runtime
+const SHOWS_CACHE = SCHEDULE.map(s => ({
+  id: s.id, name: s.name, hours: s.hours, energy: s.energy,
+  presenterName: s.presenterName, coHost: s.coHost?.name || null,
+}));
+
 app.get('/api/now-playing', (req, res) => {
   const status = queue.status();
   const np = status.nowPlaying;
@@ -66,16 +81,21 @@ app.get('/api/now-playing', (req, res) => {
   });
 });
 
-// List all shows
 app.get('/api/shows', (req, res) => {
-  res.json(SCHEDULE.map(s => ({
-    id: s.id,
-    name: s.name,
-    hours: s.hours,
-    energy: s.energy,
-    presenterName: s.presenterName,
-    coHost: s.coHost?.name || null,
-  })));
+  res.json(SHOWS_CACHE);
+});
+
+// Combined status endpoint — reduces frontend from 6 polls to 1
+app.get('/api/status', (req, res) => {
+  const status = queue.status();
+  const np = status.nowPlaying;
+  const slot = getCurrentSlot();
+  res.json({
+    nowPlaying: np ? { type: np.type, title: np.title, slot: np.slot } : null,
+    currentShow: slot.id,
+    shows: SHOWS_CACHE,
+    history: getBroadcastHistory(5),
+  });
 });
 
 // Return to scheduled show — must be registered before the :id param route

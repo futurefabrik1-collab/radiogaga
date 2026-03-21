@@ -22,6 +22,14 @@ class AudioQueue extends EventEmitter {
     return segment;
   }
 
+  peek(index = 0) {
+    return this.items[index] || null;
+  }
+
+  unshift(segment) {
+    this.items.unshift(segment);
+  }
+
   get length() {
     return this.items.length;
   }

@@ -3,7 +3,7 @@
 // Prompt is shaped by the current schedule slot for time-of-day personality and length.
 
 import { ollama } from './ollama.js';
-import { applyFilter } from './filter.js';
+// filter.js eliminated — chaos/anonymity rules are already in BASE_PERSONA prompt
 
 const BASE_PERSONA = `You are a radio presenter on radioGAGA, an AI-generated 24/7 radio station that is deeply aware of its own absurdity.
 
@@ -113,10 +113,12 @@ export async function generateDJSegment(headlines, slot) {
       }).join('\n')}\n`
     : '';
 
+  // Always reference London time (server runs UTC, London is UTC+0/+1)
   const now = new Date();
-  const hour = now.getHours();
-  const mins = now.getMinutes();
-  const timeStr = `${hour % 12 || 12}:${String(mins).padStart(2, '0')}${hour < 12 ? 'am' : 'pm'}`;
+  const london = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/London' }));
+  const hour = london.getHours();
+  const mins = london.getMinutes();
+  const timeStr = `${hour % 12 || 12}:${String(mins).padStart(2, '0')}${hour < 12 ? 'am' : 'pm'} in London`;
   const isDialogue = !!slot.coHost;
 
   let prompt;
@@ -177,8 +179,6 @@ NOW SPEAK — live on air, directly to the listener:`;
     });
 
     let raw = response.response.trim();
-    // Apply epic chaos filter to all monologue shows (dialogue rendered separately)
-    if (!isDialogue) raw = await applyFilter(raw, slot);
 
     const title = selected[0]?.title?.slice(0, 60) || 'DJ Segment';
     console.log(`[dj] Script ready (${slot.name})`);
