@@ -220,9 +220,21 @@ export async function seedArchiveMusic() {
 
 // ── Public API ──────────────────────────────────────────────────────────────
 
+// Track recently played to avoid repeats within a session
+const recentlyPlayed = new Set();
+const MAX_RECENT = 30;
+
 export function getArchiveTrack() {
   if (!pool.length) return null;
-  return pool[Math.floor(Math.random() * pool.length)];
+  const available = pool.filter(t => !recentlyPlayed.has(t.path));
+  const pick = available.length > 0 ? available : pool;
+  const track = pick[Math.floor(Math.random() * pick.length)];
+  recentlyPlayed.add(track.path);
+  if (recentlyPlayed.size > MAX_RECENT) {
+    const first = recentlyPlayed.values().next().value;
+    recentlyPlayed.delete(first);
+  }
+  return track;
 }
 
 export function archivePoolSize() { return pool.length; }

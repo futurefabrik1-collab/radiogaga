@@ -98,6 +98,32 @@ app.get('/api/status', (req, res) => {
   });
 });
 
+// SSE — push now-playing updates instead of polling
+const sseClients = new Set();
+app.get('/api/sse', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+  sseClients.add(res);
+  req.on('close', () => sseClients.delete(res));
+});
+
+// Broadcast now-playing changes to all SSE clients every 10s
+setInterval(() => {
+  if (!sseClients.size) return;
+  const status = queue.status();
+  const slot = getCurrentSlot();
+  const data = JSON.stringify({
+    nowPlaying: status.nowPlaying ? { type: status.nowPlaying.type, title: status.nowPlaying.title } : null,
+    currentShow: slot.id, showName: slot.name, presenter: slot.presenterName,
+    queued: status.queued,
+  });
+  for (const client of sseClients) {
+    try { client.write(`data: ${data}\n\n`); } catch { sseClients.delete(client); }
+  }
+}, 10_000);
+
 // Return to scheduled show — must be registered before the :id param route
 app.post('/api/skip/reset', requireAuth, (req, res) => {
   clearSlotOverride();
@@ -259,10 +285,24 @@ app.post('/api/advert', upload.single('audio'), async (req, res) => {
   }
 });
 
+// Dedup — prevent duplicate rapid submissions (same content within 60s)
+const recentSubmissions = new Map();
+function isDuplicate(key) {
+  const now = Date.now();
+  if (recentSubmissions.has(key) && now - recentSubmissions.get(key) < 60_000) return true;
+  recentSubmissions.set(key, now);
+  // Cleanup old entries every 100 submissions
+  if (recentSubmissions.size > 100) {
+    for (const [k, t] of recentSubmissions) { if (now - t > 60_000) recentSubmissions.delete(k); }
+  }
+  return false;
+}
+
 // Web shoutout submission
 app.post('/api/shoutout', (req, res) => {
   const { name, message } = req.body;
   if (!message || message.length < 1) return res.status(400).json({ error: 'Message required' });
+  if (isDuplicate(`shout:${message.slice(0, 50)}`)) return res.json({ ok: true, duplicate: true });
   try {
     addWebShoutout(name || 'Anonymous', message.slice(0, 200));
     res.json({ ok: true });
@@ -275,6 +315,7 @@ app.post('/api/shoutout', (req, res) => {
 app.post('/api/request', (req, res) => {
   const { name, prompt } = req.body;
   if (!prompt || prompt.length < 1) return res.status(400).json({ error: 'Prompt required' });
+  if (isDuplicate(`req:${prompt.slice(0, 50)}`)) return res.json({ ok: true, duplicate: true });
   try {
     addWebSuggestion(name || 'A listener', prompt.slice(0, 200));
     res.json({ ok: true });
@@ -299,16 +340,19 @@ app.post('/api/kofi-webhook', express.urlencoded({ extended: true }), (req, res)
     const amount = parseFloat(payload.amount) || 0;
     if (amount <= 0) return res.status(200).json({ ok: true }); // ignore zero amounts
 
+    // Extract AD-XXXX ref code from message if present
+    const refMatch = (payload.message || '').match(/AD-[A-Z0-9]{4}/);
     logDonation({
       kofi_tx_id: payload.kofi_transaction_id,
       from_name: payload.from_name,
       amount,
       currency: payload.currency || 'GBP',
       message: payload.message,
-      type: payload.type, // Donation, Subscription, Shop Order
+      type: payload.type,
       tier_name: payload.tier_name,
       is_subscription: payload.is_subscription_payment,
       email: payload.email,
+      ref_code: refMatch ? refMatch[0] : null,
     });
 
     console.log(`[kofi] ${payload.type}: £${amount} from ${payload.from_name}${payload.tier_name ? ` (${payload.tier_name})` : ''}`);
@@ -334,7 +378,19 @@ app.get('/api/donations', (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, time: new Date().toISOString() });
+  const status = queue.status();
+  res.json({
+    ok: true,
+    time: new Date().toISOString(),
+    uptime: Math.round(process.uptime()),
+    memory: Math.round(process.memoryUsage().rss / 1024 / 1024) + 'MB',
+    queue: status.queued,
+    nowPlaying: status.nowPlaying?.title || null,
+    currentShow: getCurrentSlot().name,
+    archivePool: archivePoolSize(),
+    adverts: catalogStats(),
+    headlines: { used: 0 }, // populated at runtime
+  });
 });
 
 // Live cost tracker (all amounts in EUR)

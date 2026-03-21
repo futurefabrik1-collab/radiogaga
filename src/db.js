@@ -23,6 +23,7 @@ const migrations = [
   'ALTER TABLE listener_adverts ADD COLUMN moderation_reason TEXT',
   'ALTER TABLE listener_adverts ADD COLUMN approved_audio_path TEXT',
   'ALTER TABLE listener_adverts ADD COLUMN play_count INTEGER DEFAULT 0',
+  'ALTER TABLE donations ADD COLUMN ref_code TEXT',
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch (err) {
@@ -146,6 +147,7 @@ const indexes = [
   'CREATE INDEX IF NOT EXISTS idx_suggestions_type_used ON suggestions(type, used, created_at)',
   'CREATE INDEX IF NOT EXISTS idx_listener_adverts_status ON listener_adverts(moderation_status, play_count, created_at)',
   'CREATE INDEX IF NOT EXISTS idx_donations_message ON donations(message)',
+  'CREATE INDEX IF NOT EXISTS idx_donations_ref_code ON donations(ref_code)',
 ];
 for (const sql of indexes) {
   try { db.exec(sql); } catch {}
@@ -287,11 +289,11 @@ export function markOverrideUsed(id) {
 
 // ── Donations ────────────────────────────────────────────────────────────────
 
-export function logDonation({ kofi_tx_id, from_name, amount, currency, message, type, tier_name, is_subscription, email }) {
-  return db.prepare(`INSERT OR IGNORE INTO donations (kofi_tx_id, from_name, amount, currency, message, type, tier_name, is_subscription, email)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+export function logDonation({ kofi_tx_id, from_name, amount, currency, message, type, tier_name, is_subscription, email, ref_code }) {
+  return db.prepare(`INSERT OR IGNORE INTO donations (kofi_tx_id, from_name, amount, currency, message, type, tier_name, is_subscription, email, ref_code)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(kofi_tx_id, from_name || 'Anonymous', amount, currency || 'GBP', message || null,
-         type || null, tier_name || null, is_subscription ? 1 : 0, email || null);
+         type || null, tier_name || null, is_subscription ? 1 : 0, email || null, ref_code || null);
 }
 
 export function getTotalDonations() {
@@ -399,9 +401,10 @@ export function incrementAdPlayCount(id) {
 }
 
 export function findDonationByRef(ref) {
-  return db.prepare(`
-    SELECT * FROM donations WHERE message LIKE ? ORDER BY created_at DESC LIMIT 1
-  `).get(`%${ref}%`);
+  // Try exact ref_code match first (indexed), fall back to LIKE on message
+  const exact = db.prepare('SELECT * FROM donations WHERE ref_code = ? LIMIT 1').get(ref);
+  if (exact) return exact;
+  return db.prepare('SELECT * FROM donations WHERE message LIKE ? ORDER BY created_at DESC LIMIT 1').get(`%${ref}%`);
 }
 
 export function getAdvertsSince(sinceIso) {

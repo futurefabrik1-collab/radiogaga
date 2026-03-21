@@ -159,8 +159,19 @@ function requireToken() {
 
 // ── Start ────────────────────────────────────────────────────────────────────
 
+// Graceful bot shutdown — release polling connection before process exits
+export function stopBot() {
+  if (bot) {
+    try { bot.stop(); } catch {}
+    console.log('[bot] Stopped');
+  }
+}
+
 export async function startBot() {
   if (!requireToken()) return;
+
+  // Wait 3s on startup to let any previous instance's polling connection timeout
+  await new Promise(r => setTimeout(r, 3000));
 
   bot = new Bot(TOKEN);
   initCompetitions(bot);

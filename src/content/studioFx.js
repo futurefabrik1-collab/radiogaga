@@ -80,6 +80,16 @@ async function generateFoleyClip(recipe) {
 }
 
 export async function initFoleyPool(count = 14) {
+  // Check if persisted foley clips exist — skip regeneration
+  const PERSIST_DIR = join(ROOT, 'assets', 'foley');
+  mkdirSync(PERSIST_DIR, { recursive: true });
+  const existing = readdirSync(PERSIST_DIR).filter(f => f.endsWith('.mp3'));
+  if (existing.length >= count) {
+    foleyPool = existing.map(f => ({ name: f.replace('.mp3', ''), path: join(PERSIST_DIR, f) }));
+    console.log(`[studioFx] Foley pool loaded from disk (${foleyPool.length} clips)`);
+    return;
+  }
+
   console.log('[studioFx] Generating foley pool...');
   const promises = [];
   for (let i = 0; i < count; i++) {
@@ -87,7 +97,13 @@ export async function initFoleyPool(count = 14) {
     promises.push(generateFoleyClip(recipe));
   }
   foleyPool = await Promise.all(promises);
-  console.log(`[studioFx] Foley pool ready (${foleyPool.length} clips)`);
+
+  // Persist to assets/foley/ for future restarts
+  for (const clip of foleyPool) {
+    const dest = join(PERSIST_DIR, `${clip.name}.mp3`);
+    try { await execFileAsync('cp', [clip.path, dest]); } catch {}
+  }
+  console.log(`[studioFx] Foley pool ready (${foleyPool.length} clips, persisted)`);
 }
 
 function pickRandomFoley(n = 2) {

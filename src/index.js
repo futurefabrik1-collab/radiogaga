@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { startServer } from './server.js';
 import { startProducer } from './content/producer.js';
 import { startStream, stopStream } from './stream.js';
-import { startBot } from './bot/index.js';
+import { startBot, stopBot } from './bot/index.js';
 import { startClipper } from './clipper.js';
 import { startBufferPoster } from './buffer.js';
 import db from './db.js';
@@ -47,6 +47,7 @@ setTimeout(cleanupTmp, 60_000); // first run 1 min after start
 // Graceful shutdown — stop stream (kills FFmpeg), close DB, then exit
 function shutdown(signal) {
   console.log(`\n[main] ${signal} received, shutting down...`);
+  stopBot();
   stopStream();
   try { db.close(); } catch {}
   // Allow 2s for FFmpeg to terminate, then force exit

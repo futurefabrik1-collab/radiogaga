@@ -166,13 +166,25 @@ function isUsed(headline) {
   return true;
 }
 
+// Fetch feeds in batches of 10 to avoid CPU/memory spike
+async function fetchInBatches(feeds, batchSize = 10) {
+  const results = [];
+  for (let i = 0; i < feeds.length; i += batchSize) {
+    const batch = feeds.slice(i, i + batchSize);
+    const batchResults = await Promise.allSettled(batch.map(f => fetchFeed(f)));
+    results.push(...batchResults);
+    if (i + batchSize < feeds.length) await new Promise(r => setTimeout(r, 500)); // 500ms between batches
+  }
+  return results;
+}
+
 export async function fetchHeadlines(maxPerFeed = 3) {
-  const results = await Promise.allSettled(FEEDS.map(f => fetchFeed(f)));
+  const results = await fetchInBatches(FEEDS);
   const all = results
     .filter(r => r.status === 'fulfilled')
     .flatMap(r => r.value.slice(0, maxPerFeed))
     .filter(h => !isExcluded(h))
-    .filter(h => !isUsed(h)); // exclude already-used headlines
+    .filter(h => !isUsed(h));
 
   // Shuffle so we don't always lead with BBC
   for (let i = all.length - 1; i > 0; i--) {
