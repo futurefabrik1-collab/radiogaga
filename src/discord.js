@@ -1,10 +1,8 @@
 // Discord integration — posts now-playing updates to a webhook.
-// Posts on show transitions and every ~10 segments to keep the channel alive.
+// Only posts on show transitions (once per hour). Minimal noise.
 
 const WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 let lastPostedShow = '';
-let segmentsSincePost = 0;
-const POST_EVERY_N_SEGMENTS = 10;
 
 const EMOJI = {
   dj: '🎙',
@@ -20,13 +18,11 @@ const EMOJI = {
 export async function postNowPlaying(segment, showName, presenterName) {
   if (!WEBHOOK_URL) return;
 
-  segmentsSincePost++;
   const showChanged = showName !== lastPostedShow;
 
-  // Post on show transitions or every N segments
-  if (!showChanged && segmentsSincePost < POST_EVERY_N_SEGMENTS) return;
+  // Only post on show transitions (once per hour)
+  if (!showChanged) return;
 
-  segmentsSincePost = 0;
   lastPostedShow = showName;
 
   const emoji = EMOJI[segment.type] || '●';
