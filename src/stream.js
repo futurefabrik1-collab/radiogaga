@@ -40,7 +40,7 @@ const TMP_DIR = join(ROOT, 'tmp');
 const SILENCE_PATH = join(TMP_DIR, 'silence.mp3');
 const SILENCE_PAD_PATH = join(TMP_DIR, 'silence-pad.mp3');
 const JINGLE_SHORT = { path: join(ROOT, 'assets', 'jingle-aimusic-short.mp3'), title: 'radioGAGA', duration: 24 };
-const JINGLE_LONG = { path: join(ROOT, 'assets', 'jingle-aimusic-long.mp3'), title: 'radioGAGA AI Music', duration: 118 };
+const JINGLE_LONG = { path: join(ROOT, 'assets', 'jingle-aimusic-long.mp3'), title: 'radioGAGA AI Music', duration: 72 };
 const STING_NEWSFLASH = { path: join(ROOT, 'assets', 'jingle-newsflash.mp3'), title: 'radioGAGA Newsflash', duration: 10 };
 const STING_CHANCE = 0.2; // 20% chance to play sting between segments
 const JINGLE_INTERVAL_MS = 15 * 60 * 1000;            // play short jingle every 15 min
@@ -187,7 +187,8 @@ async function pipeSegment(segment, stdin) {
       const processedPath = segment.path.replace(/\.mp3$/, '-proc.mp3');
       const filters = [];
 
-      // Fade-in on everything (prevents click between segments)
+      // Loudness normalisation to -12 LUFS (broadcast standard) + fade-in
+      filters.push(`loudnorm=I=-12:TP=-1:LRA=7`);
       filters.push(`afade=t=in:d=${FADE_IN_S}`);
 
       if (isMusic) {

@@ -8,7 +8,7 @@ import { existsSync, mkdirSync } from 'fs';
 import { readFile, writeFile } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { generateAdvert, generateDecentAdvert } from './advert.js';
+import { generateAdvert, generateCoreMessage } from './advert.js';
 import { getPendingTextAdverts, updateAdvertStatus } from '../db.js';
 import { ollama } from './ollama.js';
 import { textToMp3 } from './tts.js';
@@ -133,7 +133,7 @@ async function fillCatalog() {
       try {
         console.log(`[catalog] Generating ${humor} advert (${catalog.length + 1}/${CATALOG_TARGET})...`);
         const advert = isDecent
-          ? await generateDecentAdvert(fakeSlot)
+          ? await generateCoreMessage(fakeSlot)
           : await generateAdvert(fakeSlot);
 
         // Move the file into the catalog dir if it isn't already there
@@ -191,7 +191,7 @@ async function rotateCatalog() {
   const humor = isDecent ? 'decent' : HUMOR_STYLES[Math.floor(Math.random() * HUMOR_STYLES.length)];
   const fakeSlot = { voice: 'en-GB-RyanNeural', advertHumor: humor, advertMusicBed: false, id: 'catalog' };
   try {
-    const advert = isDecent ? await generateDecentAdvert(fakeSlot) : await generateAdvert(fakeSlot);
+    const advert = isDecent ? await generateCoreMessage(fakeSlot) : await generateAdvert(fakeSlot);
     catalog.push({ path: advert.path, title: advert.title, humor: advert.humor, script: advert.script, createdAt: advert.createdAt });
     saveIndex();
     console.log(`[catalog] Replacement ready: ${advert.title}`);

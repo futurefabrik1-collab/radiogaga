@@ -4,6 +4,7 @@
 
 import { ollama } from './ollama.js';
 import { markHeadlinesUsed } from './rss.js';
+import { rollLanguage, languagePromptBlock } from './languages.js';
 
 const BASE_PERSONA = `You are a radio presenter on radioGAGA, an AI-generated 24/7 radio station that is deeply aware of its own absurdity.
 
@@ -139,10 +140,14 @@ export async function generateDJSegment(headlines, slot) {
   const timeStr = `${hour % 12 || 12}:${String(mins).padStart(2, '0')}${hour < 12 ? 'am' : 'pm'} in London`;
   const isDialogue = !!slot.coHost;
 
+  // 70% English, 30% random language
+  const lang = rollLanguage();
+  const langBlock = languagePromptBlock(lang);
+
   let prompt;
   if (isDialogue) {
     prompt = `${BASE_PERSONA}
-
+${langBlock}
 YOU ARE WRITING DIALOGUE for two co-hosts: ${slot.presenterName} and ${slot.coHost.name}.
 SHOW: ${slot.name} on radioGAGA | TIME: ${timeStr}
 CHARACTER GUIDE: ${slot.djStyle}
@@ -167,7 +172,7 @@ ${headlineList}
 Write the dialogue now:`;
   } else {
     prompt = `${BASE_PERSONA}
-
+${langBlock}
 YOU ARE: ${slot.presenterName}, ${slot.name} presenter on radioGAGA
 TIME: It is ${timeStr}
 YOUR CHARACTER: ${slot.djStyle}
@@ -212,10 +217,10 @@ NOW SPEAK — live on air, directly to the listener:`;
         studioBed: slot.studioBed ?? true,
         energy: slot.energy,
       });
-      return { script: raw, title, headlines: selected, slot: slot.id, path };
+      return { script: raw, title, headlines: selected, slot: slot.id, path, lang };
     }
 
-    return { script: raw, title, headlines: selected, slot: slot.id };
+    return { script: raw, title, headlines: selected, slot: slot.id, lang };
   } catch (err) {
     console.error('[dj] Ollama error:', err.message);
     throw err;

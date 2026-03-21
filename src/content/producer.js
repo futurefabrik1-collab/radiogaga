@@ -139,7 +139,10 @@ async function produceDJSegment(slot) {
   // monologue shows need TTS + optional studio bed mixing.
   let path = result.path;
   if (!path) {
-    path = (await textToMp3(script, slot.voice, { energy: slot.energy })).path;
+    // Use language-matched voice if foreign language segment, otherwise presenter voice
+    const voice = result.lang ? result.lang.voice : slot.voice;
+    if (result.lang) console.log(`[producer] DJ segment in ${result.lang.name}`);
+    path = (await textToMp3(script, voice, { energy: slot.energy })).path;
     if (slot.studioBed) {
       const { mixStudioBed } = await import('./studioFx.js');
       const wordCount = script ? script.split(/\s+/).length : 150;

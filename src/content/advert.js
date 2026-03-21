@@ -2,6 +2,7 @@
 // Humor style (dark/light/dry/absurd) is inherited from the show's schedule config.
 
 import { ollama } from './ollama.js';
+import { rollLanguage, languagePromptBlock } from './languages.js';
 import { textToMp3 } from './tts.js';
 import { generateMusic } from './music.js';
 
@@ -65,7 +66,7 @@ function pickCategory() {
 // ── Decentralisation tech spots ───────────────────────────────────────────────
 
 // Decent tech topics — blockchain DEVELOPMENT news only, NO crypto trading/DeFi/investment
-const DECENT_TOPICS = [
+const CORE_MESSAGE_TOPICS = [
   'IPFS (InterPlanetary File System) and content-addressed storage',
   'DAO (Decentralised Autonomous Organisations) governance',
   'Self-sovereign identity and DID (Decentralised Identifiers)',
@@ -97,7 +98,7 @@ const DECENT_TOPICS = [
   'Automated market makers and how liquidity pools work',
 ];
 
-const DECENT_PROMPT = (topic) => `You are writing a 20-second factual radio spot for radioGAGA — an AI radio station.
+const CORE_MESSAGE_PROMPT = (topic) => `You are writing a 20-second factual radio spot for radioGAGA — an AI radio station.
 
 Topic: ${topic}
 
@@ -115,13 +116,13 @@ Rules:
 
 Write the spot now:`;
 
-export async function generateDecentAdvert(slot) {
-  const topic = DECENT_TOPICS[Math.floor(Math.random() * DECENT_TOPICS.length)];
-  console.log(`[advert] Generating decentralisation spot (${topic.split(' ')[0]})...`);
+export async function generateCoreMessage(slot) {
+  const topic = CORE_MESSAGE_TOPICS[Math.floor(Math.random() * CORE_MESSAGE_TOPICS.length)];
+  console.log(`[advert] Generating core message spot (${topic.split(' ')[0]})...`);
 
   const response = await ollama.generate({
     model: 'llama3.2',
-    prompt: DECENT_PROMPT(topic),
+    prompt: CORE_MESSAGE_PROMPT(topic),
     options: { temperature: 0.7, num_predict: 150 },
     stream: false,
   });
@@ -135,7 +136,7 @@ export async function generateDecentAdvert(slot) {
   return {
     path: voicePath,
     type: 'advert',
-    title: `Decent Tech — ${topic.split(/[ (]/)[0]}`,
+    title: `Core Message — ${topic.split(/[ (]/)[0]}`,
     script,
     humor: 'decent',
     slot: slot?.id,
@@ -143,11 +144,11 @@ export async function generateDecentAdvert(slot) {
   };
 }
 
-const AD_PROMPT = (category, humor) => `You are writing a 20-second radio advertisement for radioGAGA.
+const AD_PROMPT = (category, humor, langBlock = '') => `You are writing a 20-second radio advertisement for radioGAGA.
 
 The product is a completely fictional ${category}. Invent the product name, its features,
 and a tagline. The ad should be 45–60 words — enough for about 20 seconds when read aloud.
-
+${langBlock}
 HUMOR STYLE:
 ${HUMOR_BRIEF[humor] || HUMOR_BRIEF.light}
 
@@ -164,12 +165,15 @@ export async function generateAdvert(slot) {
   const category = pickCategory();
   const withMusicBed = slot?.advertMusicBed ?? false;
 
-  console.log(`[advert] Generating ${humor} ad (${category})...`);
+  // 70% English, 30% random language
+  const lang = rollLanguage();
+  const langLabel = lang ? ` [${lang.name}]` : '';
+  console.log(`[advert] Generating ${humor} ad (${category})${langLabel}...`);
 
   // Generate script
   const response = await ollama.generate({
     model: 'llama3.2',
-    prompt: AD_PROMPT(category, humor),
+    prompt: AD_PROMPT(category, humor, languagePromptBlock(lang)),
     options: { temperature: 0.95, num_predict: 150 },
     stream: false,
   });
@@ -177,8 +181,8 @@ export async function generateAdvert(slot) {
   const script = response.response.trim();
   console.log(`[advert] Script: "${script.slice(0, 80)}..."`);
 
-  // TTS with a different voice from the current presenter
-  const voice = pickAdVoice(slot?.voice);
+  // TTS — use language-matched voice or English ad voice
+  const voice = lang ? lang.voice : pickAdVoice(slot?.voice);
   const { path: voicePath } = await textToMp3(script, voice);
 
   // Music bed mixing — layer voice over a studio bed for ad shows that want it
