@@ -158,32 +158,33 @@ export default function LightNode({ id, label, x, y, hue, children, mouseX, mous
       {/* Expanded content panel */}
       {expanded && (
         <div
-          className="fixed inset-0 z-50 flex items-stretch sm:items-start justify-center sm:pt-12 sm:pb-48 sm:px-8"
+          className="fixed inset-0 z-[100]"
           onClick={handleClick}
         >
+          {/* Backdrop */}
+          <div className="absolute inset-0" style={{ background: "hsla(220, 30%, 5%, 0.92)", backdropFilter: "blur(20px)" }} />
+
+          {/* Mobile: full screen | Desktop: centered card */}
           <div
-            className="absolute inset-0 animate-fade-in"
-            style={{ background: `hsla(220, 30%, 5%, 0.85)`, backdropFilter: "blur(20px)" }}
-          />
-          <div
-            className="relative content-panel w-full h-full sm:h-auto sm:max-w-2xl sm:max-h-[50vh] overflow-y-auto overscroll-contain p-4 sm:p-4 text-xs animate-fade-in-up rounded-none sm:rounded-xl"
+            className="absolute inset-0 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:w-full sm:max-w-2xl sm:max-h-[70vh] sm:rounded-xl overflow-y-auto overscroll-contain"
             onClick={(e) => e.stopPropagation()}
-            style={{ animationDelay: "0.1s", opacity: 0 }}
+            style={{ background: "hsla(220, 20%, 8%, 0.98)", borderBottom: "none" }}
           >
-            <button
-              onClick={handleClick}
-              className="absolute top-3 right-3 sm:top-4 sm:right-4 w-10 h-10 rounded-full flex items-center justify-center text-foreground/60 hover:text-foreground hover:bg-foreground/10 transition-all z-10"
-              style={{ background: "hsla(0,0%,100%,0.05)" }}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
-            <div
-              className="absolute -top-20 -left-20 w-40 h-40 rounded-full pointer-events-none"
-              style={{
-                background: `radial-gradient(circle, hsla(${hue}, 70%, 60%, 0.15) 0%, transparent 70%)`,
-              }}
-            />
-            {children}
+            {/* Close button — always visible, sticky on mobile */}
+            <div className="sticky top-0 z-20 flex justify-end p-3" style={{ background: "hsla(220, 20%, 8%, 0.95)" }}>
+              <button
+                onClick={handleClick}
+                className="w-10 h-10 rounded-full flex items-center justify-center text-foreground/70 hover:text-foreground transition-all"
+                style={{ background: "hsla(0,0%,100%,0.08)" }}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="px-4 pb-6 sm:px-6 text-xs">
+              {children}
+            </div>
           </div>
         </div>
       )}

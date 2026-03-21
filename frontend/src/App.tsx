@@ -3,6 +3,7 @@ import { LanguageProvider } from "@/contexts/LanguageContext";
 import { AudioProvider } from "@/contexts/AudioContext";
 import Index from "./pages/Index.tsx";
 import Press from "./pages/Press.tsx";
+import Clips from "./pages/Clips.tsx";
 import NotFound from "./pages/NotFound.tsx";
 
 const App = () => (
@@ -12,6 +13,7 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/press" element={<Press />} />
+          <Route path="/clips" element={<Clips />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>

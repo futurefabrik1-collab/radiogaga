@@ -122,36 +122,52 @@ export async function renderDialogue(script, speakers, fallbackVoice, opts = {})
     if (clips.length === 1) {
       speechPath = clips[0].path;
     } else {
-      // Build the dialogue by overlapping speaker transitions.
-      // Same speaker continuing: tiny gap (breath).
-      // Speaker change: overlap the tail of previous with start of next.
-      let merged = clips[0].path;
+      // Get durations of all clips
+      const durations = [];
+      for (const c of clips) durations.push(await getDuration(c.path));
 
-      for (let i = 1; i < clips.length; i++) {
-        const prev = clips[i - 1];
-        const curr = clips[i];
-        const sameSpeaker = prev.speaker.toLowerCase() === curr.speaker.toLowerCase();
+      // Build a single ffmpeg command that places all clips on a timeline
+      // with controlled delays — overlapping on speaker changes, tiny gaps on same speaker
+      const outPath = join(TMP(), `dialogue-${randomUUID().slice(0, 8)}.mp3`);
+      let timeline = 0; // current position in seconds
+      const inputs = [];
+      const delays = [];
 
-        if (sameSpeaker) {
-          // Same speaker: small natural breath gap (0.1–0.25s)
-          const pauseS = 0.1 + Math.random() * 0.15;
-          const pausePath = join(TMP(), `pause-${randomUUID().slice(0, 8)}.mp3`);
-          await execFileAsync('ffmpeg', [
-            '-f', 'lavfi', '-i', `aevalsrc=0:d=${pauseS}`,
-            '-c:a', 'libmp3lame', '-ab', '128k', '-ar', '44100',
-            '-y', pausePath,
-          ]);
-          merged = await concatAudioFiles([merged, pausePath, curr.path], true);
-        } else {
-          // Speaker change: overlap 0.15–0.4s (higher energy = more overlap/interruption)
-          const baseOverlap = 0.15 + Math.random() * 0.15;
-          const energyBoost = Math.min(energy * 0.04, 0.15); // higher energy = more overlap
-          const overlapS = baseOverlap + energyBoost;
+      for (let i = 0; i < clips.length; i++) {
+        inputs.push('-i', clips[i].path);
+        const delayMs = Math.round(timeline * 1000);
+        delays.push(`[${i}:a]adelay=${delayMs}|${delayMs}[a${i}]`);
 
-          merged = await overlapMix(merged, curr.path, overlapS);
+        if (i < clips.length - 1) {
+          const nextSameSpeaker = clips[i].speaker.toLowerCase() === clips[i + 1].speaker.toLowerCase();
+          if (nextSameSpeaker) {
+            // Same speaker: advance by full duration + tiny breath (0.05-0.12s)
+            timeline += durations[i] + 0.05 + Math.random() * 0.07;
+          } else {
+            // Speaker change: overlap by 0.1-0.3s (more at higher energy)
+            const overlap = 0.1 + Math.random() * 0.1 + Math.min(energy * 0.03, 0.1);
+            timeline += Math.max(durations[i] - overlap, durations[i] * 0.85);
+          }
         }
       }
-      speechPath = merged;
+
+      try {
+        const mixInputs = delays.join(';') + ';' +
+          delays.map((_, i) => `[a${i}]`).join('') +
+          `amix=inputs=${clips.length}:duration=longest:dropout_transition=0.3`;
+
+        await execFileAsync('ffmpeg', [
+          ...inputs,
+          '-filter_complex', mixInputs,
+          '-c:a', 'libmp3lame', '-ab', '128k', '-ar', '44100',
+          '-y', outPath,
+        ], { timeout: 60_000 });
+
+        speechPath = outPath;
+      } catch (err) {
+        console.warn('[dialogue] Timeline mix failed, using simple concat:', err.message);
+        speechPath = await concatAudioFiles(clips.map(c => c.path), true);
+      }
     }
   }
 

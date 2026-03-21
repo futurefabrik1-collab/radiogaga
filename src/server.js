@@ -4,7 +4,7 @@ import express from 'express';
 import rateLimit from 'express-rate-limit';
 import multer from 'multer';
 import { join } from 'node:path';
-import { mkdirSync, existsSync } from 'node:fs';
+import { mkdirSync, existsSync, readFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { queue } from './queue.js';
@@ -135,7 +135,7 @@ app.use('/clips', express.static(join(process.cwd(), 'data', 'clips')));
 app.get('/api/clips', (req, res) => {
   try {
     const indexPath = join(process.cwd(), 'data', 'clips', 'clips.json');
-    const clips = JSON.parse(require('fs').readFileSync(indexPath, 'utf8'));
+    const clips = JSON.parse(readFileSync(indexPath, 'utf8'));
     const limit = Math.min(parseInt(req.query.limit) || 10, 50);
     res.json(clips.slice(-limit).reverse().map(c => ({
       id: c.id, type: c.type, title: c.title, caption: c.caption,

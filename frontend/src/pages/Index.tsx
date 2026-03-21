@@ -96,6 +96,31 @@ export default function Index() {
       <AtmosphericCanvas scrollProgress={scrollProgress} mouseX={mouseX} mouseY={mouseY} />
       <ParticleField scrollProgress={scrollProgress} mouseX={mouseX} mouseY={mouseY} />
 
+      {/* 100% AI stamp — top right quadrant, pink, rotated 30° */}
+      <div
+        className="fixed z-30 pointer-events-none"
+        style={{
+          top: '18%',
+          right: '12%',
+          transform: 'rotate(30deg)',
+          opacity: loaded ? Math.max(0.15, 0.8 - scrollProgress * 3) : 0,
+          transition: 'opacity 1s',
+        }}
+      >
+        <svg width="120" height="80" viewBox="0 0 240 160" fill="none" xmlns="http://www.w3.org/2000/svg">
+          {/* Globe */}
+          <ellipse cx="120" cy="80" rx="110" ry="72" stroke="#FF00FF" strokeWidth="6" fill="none" />
+          <ellipse cx="120" cy="80" rx="55" ry="72" stroke="#FF00FF" strokeWidth="4" fill="none" />
+          <line x1="10" y1="80" x2="230" y2="80" stroke="#FF00FF" strokeWidth="4" />
+          <path d="M 30 45 Q 120 30 210 45" stroke="#FF00FF" strokeWidth="3" fill="none" />
+          <path d="M 30 115 Q 120 130 210 115" stroke="#FF00FF" strokeWidth="3" fill="none" />
+          {/* Text background */}
+          <rect x="18" y="52" width="204" height="56" rx="4" fill="#FF00FF" />
+          {/* 100% AI text */}
+          <text x="120" y="95" textAnchor="middle" fontFamily="monospace" fontWeight="900" fontSize="52" fill="white" letterSpacing="2">100%AI</text>
+        </svg>
+      </div>
+
       {/* Title + scroll hint — behind dots (z-10) */}
       <section className="fixed inset-0 z-10 flex flex-col items-center justify-center pointer-events-none">
         <div
