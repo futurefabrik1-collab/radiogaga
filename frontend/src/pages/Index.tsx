@@ -242,6 +242,13 @@ function AdvertForm({ sent, submit }: { sent: boolean; submit: (url: string, dat
   const [tipVerified, setTipVerified] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [refCode] = useState(() => "AD-" + Math.random().toString(36).slice(2, 6).toUpperCase());
+  const [slots, setSlots] = useState<{ total: number; booked: number; remaining: number; nextSlotMinutes: number } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/ad-slots").then(r => r.json()).then(setSlots).catch(() => {});
+    const id = setInterval(() => fetch("/api/ad-slots").then(r => r.json()).then(setSlots).catch(() => {}), 60_000);
+    return () => clearInterval(id);
+  }, []);
 
   const verifyTip = async () => {
     setVerifying(true);
@@ -307,6 +314,26 @@ function AdvertForm({ sent, submit }: { sent: boolean; submit: (url: string, dat
 
   return (
     <ContentSection title="Place an Advert" subtitle="Promote your business on radioGAGA">
+      {/* Ad slot availability */}
+      {slots && (
+        <div className="mb-3 p-2 rounded font-mono text-[10px] flex items-center justify-between"
+          style={{ background: slots.remaining > 0 ? "hsla(130,60%,40%,0.08)" : "hsla(0,70%,50%,0.08)", border: `1px solid ${slots.remaining > 0 ? "hsla(130,60%,50%,0.15)" : "hsla(0,70%,50%,0.15)"}` }}>
+          <span style={{ color: slots.remaining > 0 ? "hsl(130,60%,55%)" : "hsl(0,70%,65%)" }}>
+            {slots.remaining > 0
+              ? `${slots.remaining} of ${slots.total} ad slots available today`
+              : `All ${slots.total} slots booked`}
+          </span>
+          {slots.remaining === 0 && (
+            <span className="text-foreground/40">Next slot in ~{slots.nextSlotMinutes}min</span>
+          )}
+        </div>
+      )}
+
+      {slots && slots.remaining === 0 ? (
+        <p className="text-center text-foreground/50 font-mono text-[11px] py-4">
+          All ad slots for today are booked. Check back in ~{slots.nextSlotMinutes} minutes.
+        </p>
+      ) : <>
       {/* Step 1: Ko-fi tip (always shown first) */}
       <div className="mb-3 p-3 rounded" style={{ background: "hsla(35,80%,65%,0.05)", border: "1px solid hsla(35,80%,65%,0.1)" }}>
         <p className="text-[10px] font-mono text-foreground/60 mb-2">
@@ -393,6 +420,7 @@ function AdvertForm({ sent, submit }: { sent: boolean; submit: (url: string, dat
         All ads are moderated. No political, religious, or harmful content.
         Uploaded audio requires manual review. AI-generated ads air within 24 hours.
       </p>
+      </>}
     </ContentSection>
   );
 }

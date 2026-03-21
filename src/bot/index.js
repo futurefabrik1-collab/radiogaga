@@ -494,6 +494,13 @@ You are listener #${getStats().listeners}. Tune in at radiogaga.ai 📻`,
     console.error('[bot] Error:', err.message);
   });
 
-  await bot.start({ drop_pending_updates: true });
-  console.log(`[bot] Running — ${BOT_URL}`);
+  try {
+    await bot.start({ drop_pending_updates: true });
+    console.log(`[bot] Running — ${BOT_URL}`);
+  } catch (err) {
+    // 409 = another bot instance still polling (common after rapid PM2 restarts)
+    // Don't crash the whole process — just log and retry after a delay
+    console.warn(`[bot] Start failed (${err.error_code || err.message}) — retrying in 10s`);
+    setTimeout(() => startBot().catch(() => {}), 10_000);
+  }
 }

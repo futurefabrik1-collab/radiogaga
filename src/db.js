@@ -404,6 +404,10 @@ export function findDonationByRef(ref) {
   `).get(`%${ref}%`);
 }
 
+export function getAdvertsSince(sinceIso) {
+  return db.prepare('SELECT COUNT(*) as count FROM listener_adverts WHERE created_at >= ?').get(sinceIso);
+}
+
 export function getPendingTextAdverts() {
   return db.prepare(`
     SELECT * FROM listener_adverts

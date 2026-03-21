@@ -8,7 +8,7 @@ import { mkdirSync, existsSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { queue } from './queue.js';
-import { getStats, getBroadcastHistory, getProvenanceLog, getProvenanceCount, submitShowIdea, submitAdvert, logDonation, getTotalDonations, getRecentDonations, findDonationByRef } from './db.js';
+import { getStats, getBroadcastHistory, getProvenanceLog, getProvenanceCount, submitShowIdea, submitAdvert, logDonation, getTotalDonations, getRecentDonations, findDonationByRef, getAdvertsSince } from './db.js';
 import { addWebSuggestion, addWebShoutout } from './web-submissions.js';
 import { moderateAdvert } from './content/moderator.js';
 import { catalogStats } from './content/advertCatalog.js';
@@ -151,8 +151,26 @@ app.post('/api/show-idea', (req, res) => {
   }
 });
 
+// Ad slot availability — 27 slots per 24-hour period
+const MAX_AD_SLOTS_PER_DAY = 27;
+app.get('/api/ad-slots', (req, res) => {
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { count } = getAdvertsSince(since);
+  const remaining = Math.max(0, MAX_AD_SLOTS_PER_DAY - count);
+  // Estimate next slot availability: ~53 min per slot (24h / 27)
+  const nextSlotMinutes = remaining > 0 ? 0 : Math.ceil((24 * 60) / MAX_AD_SLOTS_PER_DAY);
+  res.json({ total: MAX_AD_SLOTS_PER_DAY, booked: count, remaining, nextSlotMinutes });
+});
+
 // Listener advert submission — supports both JSON (text ad) and multipart (audio upload)
 app.post('/api/advert', upload.single('audio'), async (req, res) => {
+  // Enforce daily ad slot limit
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { count } = getAdvertsSince(since);
+  if (count >= MAX_AD_SLOTS_PER_DAY) {
+    return res.status(429).json({ error: 'All ad slots are booked for today. Try again tomorrow.', booked: count, remaining: 0 });
+  }
+
   const { business_name, product, description, tone, target_audience, website, submitter_name, payment_ref } = req.body;
   if (!business_name || !product || !description) {
     return res.status(400).json({ error: 'Missing required fields: business_name, product, description' });

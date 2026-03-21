@@ -118,28 +118,52 @@ function isExcluded(headline) {
   return EXCLUDED_KEYWORDS.some(kw => text.includes(kw));
 }
 
-// Track used headlines — once a headline is picked for a DJ segment, it's archived.
-// Keyed by title hash. Cleared every 24 hours to allow stories to recirculate.
-const usedHeadlines = new Set();
-const USED_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
-let usedHeadlinesResetTime = Date.now();
+// Track used headlines — persisted to disk so they survive PM2 restarts.
+// Each entry has a timestamp. Headlines older than 24h are pruned on load.
+import { readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { join } from 'path';
+
+const USED_FILE = join(process.cwd(), 'data', 'used-headlines.json');
+const USED_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+let usedHeadlines = new Map(); // title → timestamp
+
+// Load from disk on startup
+try {
+  mkdirSync(join(process.cwd(), 'data'), { recursive: true });
+  const raw = JSON.parse(readFileSync(USED_FILE, 'utf8'));
+  const now = Date.now();
+  for (const [title, ts] of Object.entries(raw)) {
+    if (now - ts < USED_MAX_AGE_MS) usedHeadlines.set(title, ts);
+  }
+  console.log(`[rss] Loaded ${usedHeadlines.size} used headlines from disk`);
+} catch {
+  // First run or corrupt file — start fresh
+}
+
+function persistUsed() {
+  try {
+    writeFileSync(USED_FILE, JSON.stringify(Object.fromEntries(usedHeadlines)));
+  } catch {}
+}
 
 export function markHeadlineUsed(headline) {
-  usedHeadlines.add(headline.title.toLowerCase().trim());
+  usedHeadlines.set(headline.title.toLowerCase().trim(), Date.now());
 }
 
 export function markHeadlinesUsed(headlines) {
   for (const h of headlines) markHeadlineUsed(h);
+  persistUsed(); // save to disk after each batch
 }
 
 function isUsed(headline) {
-  // Reset the used set every 24 hours
-  if (Date.now() - usedHeadlinesResetTime > USED_MAX_AGE_MS) {
-    usedHeadlines.clear();
-    usedHeadlinesResetTime = Date.now();
-    console.log('[rss] Used headlines cache cleared (24h rotation)');
+  const key = headline.title.toLowerCase().trim();
+  const ts = usedHeadlines.get(key);
+  if (!ts) return false;
+  if (Date.now() - ts > USED_MAX_AGE_MS) {
+    usedHeadlines.delete(key);
+    return false;
   }
-  return usedHeadlines.has(headline.title.toLowerCase().trim());
+  return true;
 }
 
 export async function fetchHeadlines(maxPerFeed = 3) {
