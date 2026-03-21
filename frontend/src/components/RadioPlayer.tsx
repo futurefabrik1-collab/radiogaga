@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState } from "react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAudio } from "@/contexts/AudioContext";
+import CostBanner from "./CostBanner";
 
 interface Show {
   id: string;
@@ -51,50 +52,76 @@ function useShows() {
   return { shows, currentShow, skipTo, nowPlaying };
 }
 
-export default function RadioPlayer() {
-  const { t } = useLanguage();
-  const { playing, togglePlay, volume, setVolume, analyserRef, streamConnected, muted } = useAudio();
-  const { shows, currentShow, skipTo, nowPlaying } = useShows();
-  const currentShowObj = shows.find(s => s.id === currentShow);
-  const [showPicker, setShowPicker] = useState(false);
+// Animated ring around the play button showing audio level / buffering
+function BufferRing({ playing, muted, analyserRef }: {
+  playing: boolean;
+  muted: boolean;
+  analyserRef: React.MutableRefObject<AnalyserNode | null>;
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animRef = useRef<number>(0);
+  const size = 88; // canvas logical size
+  const lineW = 2.5;
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-
     const dpr = Math.min(window.devicePixelRatio, 2);
-    canvas.width = 200 * dpr;
-    canvas.height = 32 * dpr;
+    canvas.width = size * dpr;
+    canvas.height = size * dpr;
     ctx.scale(dpr, dpr);
+    const cx = size / 2;
+    const cy = size / 2;
+    const r = (size - lineW * 2) / 2;
 
     const draw = () => {
-      ctx.clearRect(0, 0, 200, 32);
+      ctx.clearRect(0, 0, size, size);
       const analyser = analyserRef.current;
 
-      if (analyser && playing) {
+      if (analyser && playing && !muted) {
+        // Audio-reactive ring — draw segments based on frequency data
         const data = new Uint8Array(analyser.frequencyBinCount);
         analyser.getByteFrequencyData(data);
-        const bars = 32;
-        const barW = 200 / bars;
-        for (let i = 0; i < bars; i++) {
-          const val = data[i] / 255;
-          const h = val * 28 + 2;
-          ctx.fillStyle = `hsla(35, 80%, 65%, ${0.3 + val * 0.7})`;
-          ctx.fillRect(i * barW + 1, 32 - h, barW - 2, h);
+        const segments = 48;
+        const gap = 0.02;
+        const arcLen = (Math.PI * 2) / segments - gap;
+
+        for (let i = 0; i < segments; i++) {
+          const val = data[Math.floor(i * data.length / segments)] / 255;
+          const angle = (i / segments) * Math.PI * 2 - Math.PI / 2;
+          ctx.beginPath();
+          ctx.arc(cx, cy, r, angle, angle + arcLen);
+          ctx.strokeStyle = `hsla(35, 80%, 65%, ${0.15 + val * 0.85})`;
+          ctx.lineWidth = lineW + val * 2;
+          ctx.lineCap = "round";
+          ctx.stroke();
         }
+      } else if (playing && muted) {
+        // Pulsing ring when muted (waiting for user tap)
+        const t = Date.now() * 0.003;
+        const pulse = 0.4 + Math.sin(t) * 0.3;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.strokeStyle = `hsla(35, 80%, 65%, ${pulse})`;
+        ctx.lineWidth = lineW;
+        ctx.stroke();
+        // Spinner arc
+        const sweep = Math.PI * 0.6;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, t % (Math.PI * 2), (t % (Math.PI * 2)) + sweep);
+        ctx.strokeStyle = `hsla(35, 80%, 65%, 0.8)`;
+        ctx.lineWidth = lineW + 1;
+        ctx.lineCap = "round";
+        ctx.stroke();
       } else {
-        const bars = 32;
-        const barW = 200 / bars;
-        const time = Date.now() * 0.001;
-        for (let i = 0; i < bars; i++) {
-          const h = 2 + Math.sin(time + i * 0.5) * 1.5;
-          ctx.fillStyle = `hsla(35, 80%, 65%, 0.15)`;
-          ctx.fillRect(i * barW + 1, 32 - h, barW - 2, h);
-        }
+        // Idle subtle ring
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.strokeStyle = `hsla(35, 80%, 65%, 0.12)`;
+        ctx.lineWidth = lineW;
+        ctx.stroke();
       }
 
       animRef.current = requestAnimationFrame(draw);
@@ -102,10 +129,26 @@ export default function RadioPlayer() {
 
     animRef.current = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(animRef.current);
-  }, [playing, analyserRef]);
+  }, [playing, muted, analyserRef]);
 
   return (
-    <div className="fixed bottom-8 left-0 right-0 z-50 flex flex-col items-center justify-center">
+    <canvas
+      ref={canvasRef}
+      className="absolute inset-0"
+      style={{ width: size, height: size }}
+    />
+  );
+}
+
+export default function RadioPlayer() {
+  const { t } = useLanguage();
+  const { playing, togglePlay, volume, setVolume, analyserRef, streamConnected, muted } = useAudio();
+  const { shows, currentShow, skipTo, nowPlaying } = useShows();
+  const currentShowObj = shows.find(s => s.id === currentShow);
+  const [showPicker, setShowPicker] = useState(false);
+
+  return (
+    <div className="fixed bottom-6 left-0 right-0 z-50 flex flex-col items-center justify-center">
 
       {/* Show picker */}
       {showPicker && (
@@ -131,10 +174,11 @@ export default function RadioPlayer() {
         </div>
       )}
 
-      <div className="content-panel flex flex-col gap-2 px-5 pt-2.5 pb-3 mb-10 mx-4 max-w-md w-full">
+      {/* Merged player + costs panel */}
+      <div className="content-panel flex flex-col items-center gap-3 px-5 pt-4 pb-4 mx-4 max-w-md w-full">
 
         {/* Now-playing info strip */}
-        <div className="flex items-center justify-between min-h-[18px]">
+        <div className="flex items-center justify-between w-full min-h-[18px]">
           <div className="flex items-center gap-1.5 overflow-hidden">
             {currentShowObj && (
               <span className="font-mono text-[10px] tracking-widest uppercase truncate" style={{ color: "hsl(35, 80%, 65%)" }}>
@@ -147,82 +191,101 @@ export default function RadioPlayer() {
               </span>
             )}
           </div>
-          {nowPlaying && (
-            <span
-              className="font-mono text-[9px] tracking-widest uppercase px-1.5 py-0.5 rounded shrink-0 ml-2"
-              style={{
-                color: nowPlaying.type === "news" ? "hsl(0,70%,65%)"
-                  : nowPlaying.type === "advert" ? "hsla(0,0%,100%,0.3)"
-                  : nowPlaying.type === "guest" ? "hsl(270,60%,70%)"
-                  : "hsl(35,80%,65%)",
-                background: nowPlaying.type === "news" ? "hsla(0,70%,65%,0.1)"
-                  : nowPlaying.type === "advert" ? "hsla(0,0%,100%,0.05)"
-                  : nowPlaying.type === "guest" ? "hsla(270,60%,70%,0.1)"
-                  : "hsla(35,80%,65%,0.1)",
-              }}
+          <div className="flex items-center gap-2">
+            {nowPlaying && (
+              <span
+                className="font-mono text-[9px] tracking-widest uppercase px-1.5 py-0.5 rounded shrink-0"
+                style={{
+                  color: nowPlaying.type === "news" ? "hsl(0,70%,65%)"
+                    : nowPlaying.type === "advert" ? "hsla(0,0%,100%,0.3)"
+                    : nowPlaying.type === "guest" ? "hsl(270,60%,70%)"
+                    : "hsl(35,80%,65%)",
+                  background: nowPlaying.type === "news" ? "hsla(0,70%,65%,0.1)"
+                    : nowPlaying.type === "advert" ? "hsla(0,0%,100%,0.05)"
+                    : nowPlaying.type === "guest" ? "hsla(270,60%,70%,0.1)"
+                    : "hsla(35,80%,65%,0.1)",
+                }}
+              >
+                {SEGMENT_LABELS[nowPlaying.type] ?? nowPlaying.type.toUpperCase()}
+              </span>
+            )}
+            <button
+              onClick={() => setShowPicker(v => !v)}
+              className="font-mono text-[9px] tracking-widest uppercase text-foreground/40 hover:text-foreground/70 transition-colors"
             >
-              {SEGMENT_LABELS[nowPlaying.type] ?? nowPlaying.type.toUpperCase()}
-            </span>
-          )}
+              {showPicker ? "▾ close" : "▸ shows"}
+            </button>
+          </div>
         </div>
 
-        {/* Controls row */}
-        <div className="flex items-center gap-4">
-        <button
-          onClick={togglePlay}
-          className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 transition-all duration-300 active:scale-95 ${muted && playing ? "animate-pulse" : ""}`}
-          style={{
-            background: playing && !muted ? "hsla(35, 80%, 65%, 0.2)" : muted && playing ? "hsla(35, 80%, 65%, 0.15)" : "hsla(35, 80%, 65%, 0.1)",
-            boxShadow: playing && !muted ? "0 0 20px hsla(35, 80%, 65%, 0.2)" : muted && playing ? "0 0 15px hsla(35, 80%, 65%, 0.15)" : "none",
-          }}
-          aria-label={playing && !muted ? "Pause" : muted ? "Unmute" : "Play"}
-        >
-          {playing && !muted ? (
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <rect x="2" y="1" width="3.5" height="12" rx="1" fill="hsl(35, 80%, 65%)" />
-              <rect x="8.5" y="1" width="3.5" height="12" rx="1" fill="hsl(35, 80%, 65%)" />
-            </svg>
-          ) : muted && playing ? (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="hsl(35, 80%, 65%)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="hsl(35, 80%, 65%)" />
-              <line x1="23" y1="9" x2="17" y2="15" />
-              <line x1="17" y1="9" x2="23" y2="15" />
-            </svg>
-          ) : (
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <path d="M3 1.5L12 7L3 12.5V1.5Z" fill="hsl(35, 80%, 65%)" />
-            </svg>
-          )}
-        </button>
+        {/* Central play button with buffer ring */}
+        <div className="flex items-center gap-5 w-full">
+          <div className="flex items-center gap-3">
+            {/* Volume */}
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              value={volume}
+              onChange={(e) => setVolume(parseFloat(e.target.value))}
+              className="w-14 h-1 appearance-none bg-border rounded-full cursor-pointer accent-primary"
+              aria-label="Volume"
+            />
+          </div>
 
-        <canvas ref={canvasRef} className="flex-1 h-8" style={{ width: "100%", height: 32 }} />
+          {/* Big play button with ring */}
+          <div className="relative mx-auto" style={{ width: 88, height: 88 }}>
+            <BufferRing playing={playing} muted={muted} analyserRef={analyserRef} />
+            <button
+              onClick={togglePlay}
+              className="absolute inset-0 m-auto w-16 h-16 rounded-full flex items-center justify-center transition-all duration-300 active:scale-90"
+              style={{
+                background: playing && !muted
+                  ? "hsla(35, 80%, 65%, 0.15)"
+                  : muted && playing
+                  ? "hsla(35, 80%, 65%, 0.1)"
+                  : "hsla(35, 80%, 65%, 0.08)",
+                boxShadow: playing && !muted
+                  ? "0 0 30px hsla(35, 80%, 65%, 0.2)"
+                  : "none",
+              }}
+              aria-label={playing && !muted ? "Pause" : muted ? "Unmute" : "Play"}
+            >
+              {playing && !muted ? (
+                <svg width="20" height="20" viewBox="0 0 14 14" fill="none">
+                  <rect x="2" y="1" width="3.5" height="12" rx="1" fill="hsl(35, 80%, 65%)" />
+                  <rect x="8.5" y="1" width="3.5" height="12" rx="1" fill="hsl(35, 80%, 65%)" />
+                </svg>
+              ) : muted && playing ? (
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="hsl(35, 80%, 65%)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="hsl(35, 80%, 65%)" />
+                  <line x1="23" y1="9" x2="17" y2="15" />
+                  <line x1="17" y1="9" x2="23" y2="15" />
+                </svg>
+              ) : (
+                <svg width="22" height="22" viewBox="0 0 14 14" fill="none">
+                  <path d="M3 1.5L12 7L3 12.5V1.5Z" fill="hsl(35, 80%, 65%)" />
+                </svg>
+              )}
+            </button>
+          </div>
 
-        <input
-          type="range"
-          min="0"
-          max="1"
-          step="0.01"
-          value={volume}
-          onChange={(e) => setVolume(parseFloat(e.target.value))}
-          className="w-16 h-1 appearance-none bg-border rounded-full cursor-pointer accent-primary"
-          aria-label="Volume"
-        />
-
-        <div className="flex flex-col items-end gap-1.5 shrink-0">
-          <span className="flex items-center gap-1.5">
-            <span className={`w-1.5 h-1.5 rounded-full ${streamConnected ? "bg-red-500 animate-pulse" : "bg-foreground/20"}`} />
-            <span className="font-mono text-[10px] tracking-widest uppercase text-foreground/70">
-              {streamConnected && !muted ? t("player.live") : streamConnected && muted ? "tap to listen" : playing ? "connecting" : "off air"}
+          {/* Status */}
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <span className="flex items-center gap-1.5">
+              <span className={`w-1.5 h-1.5 rounded-full ${streamConnected ? "bg-red-500 animate-pulse" : "bg-foreground/20"}`} />
+              <span className="font-mono text-[10px] tracking-widest uppercase text-foreground/70">
+                {streamConnected && !muted ? t("player.live") : streamConnected && muted ? "tap to listen" : playing ? "connecting" : "off air"}
+              </span>
             </span>
-          </span>
-          <button
-            onClick={() => setShowPicker(v => !v)}
-            className="font-mono text-[9px] tracking-widest uppercase text-foreground/40 hover:text-foreground/70 transition-colors"
-          >
-            {showPicker ? "▾ close" : "▸ shows"}
-          </button>
+          </div>
         </div>
-        </div>{/* end controls row */}
+
+        {/* Cost banner integrated */}
+        <div className="w-full pt-1 border-t border-foreground/5">
+          <CostBanner />
+        </div>
       </div>
     </div>
   );

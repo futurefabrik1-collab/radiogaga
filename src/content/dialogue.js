@@ -3,6 +3,7 @@
 // Each line is TTS'd with the matching voice, then all clips are concatenated.
 // Optionally layers a low-volume music bed + foley to mimic a real studio.
 
+import { join } from 'node:path';
 import { textToMp3, concatAudioFiles } from './tts.js';
 import { mixStudioBed } from './studioFx.js';
 
@@ -47,10 +48,7 @@ async function generatePause(durationS = 0.4) {
   const { promisify } = await import('util');
   const { randomUUID } = await import('crypto');
   const exec = promisify(execFile);
-  const pausePath = join(
-    (await import('path')).dirname((await import('url')).fileURLToPath(import.meta.url)),
-    '..', '..', 'tmp', 'audio', `pause-${randomUUID().slice(0, 8)}.mp3`
-  );
+  const pausePath = join(process.cwd(), 'tmp', 'audio', `pause-${randomUUID().slice(0, 8)}.mp3`);
   await exec('ffmpeg', [
     '-f', 'lavfi', '-i', `aevalsrc=0:d=${durationS}`,
     '-c:a', 'libmp3lame', '-ab', '128k', '-ar', '44100',

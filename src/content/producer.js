@@ -27,6 +27,7 @@ import { generateTrackIntro, generateTrackOutro } from './trackIntro.js';
 import { generateGuestSegment } from './guest.js';
 import { generateNewsBulletin } from './news.js';
 import { generateWeatherForecast } from './weather.js';
+import { existsSync } from 'node:fs';
 import { initFoleyPool, startBedWorker } from './studioFx.js';
 
 const POLL_INTERVAL_MS = 4000;
@@ -294,6 +295,19 @@ async function produceNewsBulletin() {
       console.log(`[producer] Weather queued: ${weather.title}`);
     } catch (err) {
       console.error('[producer] Weather failed:', err.message);
+    }
+
+    // Close news block with radioGAGA Sting
+    if (bulletin.closingSting && existsSync(bulletin.closingSting)) {
+      queue.push({
+        path: bulletin.closingSting,
+        type: 'jingle',
+        title: 'radioGAGA Sting',
+        duration: 29,
+        generator: 'pre-produced',
+        source: 'ai-generated-jingle',
+      });
+      console.log('[producer] News closing sting queued');
     }
   } catch (err) {
     console.error('[producer] News failed:', err.message);

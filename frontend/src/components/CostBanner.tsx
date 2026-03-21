@@ -3,7 +3,9 @@ import { useEffect, useState, useRef } from "react";
 interface CostData {
   totalCost: number;
   infraCost: number;
-  groqCost: number;
+  llmCost: number;
+  domainCost: number;
+  buildCost: number;
   donations: number;
   deficit: number;
   uptimeDays: number;
@@ -11,35 +13,11 @@ interface CostData {
   launchDate: string;
 }
 
-function AnimatedCounter({ value, prefix = "£" }: { value: number; prefix?: string }) {
-  const [display, setDisplay] = useState(value);
-  const ref = useRef(value);
-
-  useEffect(() => {
-    const start = ref.current;
-    const end = value;
-    const duration = 1200;
-    const startTime = Date.now();
-
-    const tick = () => {
-      const elapsed = Date.now() - startTime;
-      const progress = Math.min(elapsed / duration, 1);
-      const eased = 1 - Math.pow(1 - progress, 3); // ease-out cubic
-      setDisplay(start + (end - start) * eased);
-      if (progress < 1) requestAnimationFrame(tick);
-      else ref.current = end;
-    };
-    requestAnimationFrame(tick);
-  }, [value]);
-
-  return (
-    <span>{prefix}{display.toFixed(2)}</span>
-  );
-}
-
 export default function CostBanner() {
   const [data, setData] = useState<CostData | null>(null);
   const [liveCost, setLiveCost] = useState(0);
+  const costRef = useRef(0);
+  const rateRef = useRef(0); // cost per millisecond
 
   useEffect(() => {
     const fetchCosts = () =>
@@ -47,28 +25,33 @@ export default function CostBanner() {
         .then((r) => r.json())
         .then((d) => {
           setData(d);
+          costRef.current = d.totalCost;
           setLiveCost(d.totalCost);
+          // Calculate cost accumulation rate: total cost / total uptime in ms
+          rateRef.current = d.totalCost / (d.uptimeDays * 86_400_000);
         })
         .catch(() => {});
 
     fetchCosts();
-    const id = setInterval(fetchCosts, 60_000); // refresh every minute
+    const id = setInterval(fetchCosts, 60_000);
     return () => clearInterval(id);
   }, []);
 
-  // Tick the cost counter up in real-time between API polls
+  // Tick cost counter every 100ms for visible real-time accumulation
   useEffect(() => {
     if (!data) return;
-    const costPerMs = (data.totalCost / (data.uptimeDays * 24 * 60 * 60 * 1000));
+    const interval = 100; // ms
     const id = setInterval(() => {
-      setLiveCost((prev) => prev + costPerMs * 1000);
-    }, 1000);
+      costRef.current += rateRef.current * interval;
+      setLiveCost(costRef.current);
+    }, interval);
     return () => clearInterval(id);
   }, [data]);
 
   if (!data) return null;
 
-  const pct = data.totalCost > 0 ? Math.min((data.donations / data.totalCost) * 100, 100) : 0;
+  const pct = liveCost > 0 ? Math.min((data.donations / liveCost) * 100, 100) : 0;
+  const deficit = liveCost - data.donations;
 
   return (
     <div className="w-full max-w-md mx-auto pointer-events-auto">
@@ -85,8 +68,8 @@ export default function CostBanner() {
         <div className="flex items-center justify-between mb-2">
           <div className="flex flex-col">
             <span className="text-foreground/40">Running cost</span>
-            <span className="text-[14px] tracking-wide" style={{ color: "hsl(0, 70%, 65%)" }}>
-              <AnimatedCounter value={liveCost} prefix="£" />
+            <span className="text-[14px] tracking-wide tabular-nums" style={{ color: "hsl(0, 70%, 65%)" }}>
+              €{liveCost.toFixed(4)}
             </span>
           </div>
           <div className="flex flex-col items-center">
@@ -95,8 +78,8 @@ export default function CostBanner() {
           </div>
           <div className="flex flex-col items-end">
             <span className="text-foreground/40">Donations</span>
-            <span className="text-[14px] tracking-wide" style={{ color: "hsl(130, 60%, 55%)" }}>
-              £{data.donations.toFixed(2)}
+            <span className="text-[14px] tracking-wide tabular-nums" style={{ color: "hsl(130, 60%, 55%)" }}>
+              €{data.donations.toFixed(2)}
             </span>
           </div>
         </div>
@@ -117,9 +100,9 @@ export default function CostBanner() {
         {/* Deficit / surplus message */}
         <div className="flex items-center justify-between mt-1.5">
           <span className="text-foreground/30 normal-case text-[8px]">
-            {data.deficit > 0
-              ? `£${data.deficit.toFixed(2)} needed to break even`
-              : `Funded! £${Math.abs(data.deficit).toFixed(2)} surplus`}
+            {deficit > 0
+              ? `€${deficit.toFixed(2)} needed to break even`
+              : `Funded! €${Math.abs(deficit).toFixed(2)} surplus`}
           </span>
           <a
             href="https://ko-fi.com/radiogaga/tiers"

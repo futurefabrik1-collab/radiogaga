@@ -1,10 +1,29 @@
 // Hourly news bulletin — positive news, warm humanity, classic radio style.
 // Dedicated news anchor voice distinct from all presenters.
 // Runs once per hour on the hour.
+//
+// Audio flow: News Pulse sting plays → voice blends in at 3s over sting →
+// sting fades to background under voice → news ends → radioGAGA Sting closer.
 
+import { join } from 'node:path';
+import { existsSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { ollama } from './ollama.js';
 import { textToMp3 } from './tts.js';
-import { mixStudioBed } from './studioFx.js';
+
+const execFileAsync = promisify(execFile);
+
+const ROOT = process.cwd();
+
+// News pulse stings — randomly alternated
+const NEWS_PULSES = [
+  join(ROOT, 'assets', 'news-pulse-a.mp3'),
+  join(ROOT, 'assets', 'news-pulse-b.mp3'),
+];
+
+// Closing sting
+const CLOSING_STING = join(ROOT, 'assets', 'jingle.mp3');
 
 // Single dedicated news anchor — voice NOT used by any presenter
 const NEWS_ANCHOR = {
@@ -44,6 +63,39 @@ ${headlines}
 
 Write the bulletin now:`;
 
+/**
+ * Overlay voice onto news pulse sting.
+ * Sting plays from 0s, voice starts at voiceDelayS, sting ducks under voice.
+ */
+async function overlayVoiceOnSting(voicePath, stingPath, voiceDelayS = 3) {
+  const outPath = voicePath.replace(/\.mp3$/, '-news.mp3');
+
+  // Use ffmpeg to:
+  // 1. Delay the voice by voiceDelayS seconds
+  // 2. Duck (lower volume of) the sting once voice starts
+  // 3. Mix both together
+  const args = [
+    '-i', stingPath,               // input 0: news pulse sting
+    '-i', voicePath,               // input 1: voice
+    '-filter_complex',
+    [
+      // Pad voice with silence at the start so it begins after the sting intro
+      `[1:a]adelay=${voiceDelayS * 1000}|${voiceDelayS * 1000}[voice]`,
+      // Duck the sting volume down once the voice starts
+      `[0:a]volume=1.0:enable='lt(t,${voiceDelayS})'[sting_full]`,
+      `[0:a]volume=0.15:enable='gte(t,${voiceDelayS})'[sting_duck]`,
+      // Mix full-volume sting (first 3s) with ducked sting (rest) — amix merges them
+      `[sting_full][sting_duck]amix=inputs=2:duration=longest[sting_mixed]`,
+      // Final mix: ducked sting + delayed voice
+      `[sting_mixed][voice]amix=inputs=2:duration=longest:dropout_transition=2`,
+    ].join(';'),
+    '-c:a', 'libmp3lame', '-ab', '128k', '-ar', '44100', '-y', outPath,
+  ];
+
+  await execFileAsync('ffmpeg', args);
+  return outPath;
+}
+
 export async function generateNewsBulletin(headlines) {
   const hour = new Date().getHours();
 
@@ -62,15 +114,18 @@ export async function generateNewsBulletin(headlines) {
   const script = response.response.trim();
   let { path } = await textToMp3(script, NEWS_ANCHOR.voice, { energy: 3 });
 
-  // Add a subtle news bed underneath
-  try {
-    const wordCount = script.split(/\s+/).length;
-    path = await mixStudioBed(path, {
-      durationS: Math.round(wordCount / 2.5),
-      energy: 2,
-    });
-  } catch (err) {
-    console.warn('[news] Studio bed mixing failed:', err.message);
+  // Overlay voice onto a random news pulse sting
+  const pulse = NEWS_PULSES[Math.floor(Math.random() * NEWS_PULSES.length)];
+  if (existsSync(pulse)) {
+    try {
+      const mixed = await overlayVoiceOnSting(path, pulse, 3);
+      if (existsSync(mixed)) {
+        path = mixed;
+        console.log(`[news] Voice overlaid on news pulse sting`);
+      }
+    } catch (err) {
+      console.warn('[news] Pulse overlay failed, using raw voice:', err.message);
+    }
   }
 
   console.log(`[news] Bulletin ready (${script.split(/\s+/).length} words)`);
@@ -83,9 +138,10 @@ export async function generateNewsBulletin(headlines) {
     anchor: NEWS_ANCHOR.name,
     voice: NEWS_ANCHOR.voice,
     slot: null,
-    generator: 'groq+edge-tts',
-    model: 'llama-3.3-70b-versatile',
+    generator: 'openrouter+edge-tts',
+    model: 'llama-3.3-70b-instruct',
     source: 'ai-generated-news',
     createdAt: new Date().toISOString(),
+    closingSting: CLOSING_STING, // stream loop plays this after news block
   };
 }

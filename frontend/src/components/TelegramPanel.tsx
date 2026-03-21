@@ -46,7 +46,7 @@ export default function TelegramPanel({ compact = false }: { compact?: boolean }
       >
         <QRCodeSVG
           value={BOT_URL}
-          size={96}
+          size={56}
           bgColor="transparent"
           fgColor="hsla(35, 80%, 65%, 0.75)"
           level="M"
@@ -89,7 +89,7 @@ export default function TelegramPanel({ compact = false }: { compact?: boolean }
       >
         <QRCodeSVG
           value={BOT_URL}
-          size={96}
+          size={56}
           bgColor="transparent"
           fgColor="hsla(35, 80%, 65%, 0.85)"
           level="M"

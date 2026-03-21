@@ -74,9 +74,8 @@ export default function Ticker() {
   return (
     <div
       ref={containerRef}
-      className="fixed left-0 right-0 z-[45] overflow-hidden pointer-events-none"
+      className="fixed left-0 right-0 top-0 z-[45] overflow-hidden pointer-events-none"
       style={{
-        bottom: 200,
         height: 28,
         background: "linear-gradient(to right, hsla(0,0%,0%,0), hsla(0,0%,0%,0.4), hsla(0,0%,0%,0))",
       }}

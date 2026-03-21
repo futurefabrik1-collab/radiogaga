@@ -192,12 +192,15 @@ app.get('/api/health', (req, res) => {
   res.json({ ok: true, time: new Date().toISOString() });
 });
 
-// Live cost tracker
-// Droplet: $48/mo, Domain: ~$1/mo, Groq: estimated from token usage
+// Live cost tracker (all amounts in EUR)
+// Droplet: €12/mo, Domain: €10/mo, LLM: OpenRouter estimated from token usage
+// Build cost: one-time AI development token spend (Claude Code sessions)
 const LAUNCH_DATE = new Date('2026-03-19T00:00:00Z'); // station launch
-const FIXED_MONTHLY = 48 + 1; // droplet + domain amortised
-const GROQ_INPUT_PER_M = 0.59;
-const GROQ_OUTPUT_PER_M = 0.79;
+const DROPLET_MONTHLY_EUR = 12;   // DigitalOcean $12 ≈ €11, round to €12
+const DOMAIN_MONTHLY_EUR = 10;    // domain annual cost amortised monthly
+const BUILD_COST_EUR = 45;        // one-time Claude Code token cost to build the station
+const OPENROUTER_INPUT_PER_M = 0.59;  // $/M input tokens (llama-3.3-70b)
+const OPENROUTER_OUTPUT_PER_M = 0.79; // $/M output tokens
 
 app.get('/api/costs', (req, res) => {
   const now = new Date();
@@ -206,27 +209,30 @@ app.get('/api/costs', (req, res) => {
   const uptimeMonths = uptimeDays / 30.44;
 
   // Fixed infra cost accrued so far
-  const infraCost = uptimeMonths * FIXED_MONTHLY;
+  const infraCost = uptimeMonths * DROPLET_MONTHLY_EUR;
+  const domainCost = uptimeMonths * DOMAIN_MONTHLY_EUR;
 
-  // Estimate Groq cost from broadcast history count (rough: ~1100 tokens per segment)
+  // Estimate LLM cost from broadcast history count (rough: ~1100 tokens per segment)
   const totalSegments = getProvenanceCount();
   const estInputTokens = totalSegments * 800;
   const estOutputTokens = totalSegments * 300;
-  const groqCost = (estInputTokens / 1_000_000) * GROQ_INPUT_PER_M
-                 + (estOutputTokens / 1_000_000) * GROQ_OUTPUT_PER_M;
+  const llmCost = (estInputTokens / 1_000_000) * OPENROUTER_INPUT_PER_M
+                + (estOutputTokens / 1_000_000) * OPENROUTER_OUTPUT_PER_M;
 
-  const totalCost = infraCost + groqCost;
+  const totalCost = infraCost + domainCost + llmCost + BUILD_COST_EUR;
 
   // Donations — pulled live from DB (fed by Ko-fi webhook)
   const donations = getTotalDonations();
 
   res.json({
-    totalCost: Math.round(totalCost * 100) / 100,
-    infraCost: Math.round(infraCost * 100) / 100,
-    groqCost: Math.round(groqCost * 100) / 100,
+    totalCost: parseFloat(totalCost.toFixed(4)),
+    infraCost: parseFloat(infraCost.toFixed(4)),
+    domainCost: parseFloat(domainCost.toFixed(4)),
+    llmCost: parseFloat(llmCost.toFixed(4)),
+    buildCost: BUILD_COST_EUR,
     donations,
-    deficit: Math.round((totalCost - donations) * 100) / 100,
-    uptimeDays: Math.round(uptimeDays * 10) / 10,
+    deficit: parseFloat((totalCost - donations).toFixed(4)),
+    uptimeDays: parseFloat(uptimeDays.toFixed(2)),
     totalSegments,
     launchDate: LAUNCH_DATE.toISOString(),
   });

@@ -6,7 +6,6 @@ import ContentSection from "@/components/ContentSection";
 import ScrollSections from "@/components/ScrollSections";
 import RadioPlayer from "@/components/RadioPlayer";
 import Ticker from "@/components/Ticker";
-import CostBanner from "@/components/CostBanner";
 import TelegramPanel from "@/components/TelegramPanel";
 import { useLanguage } from "@/contexts/LanguageContext";
 
@@ -86,6 +85,7 @@ export default function Index() {
       <AtmosphericCanvas scrollProgress={scrollProgress} mouseX={mouseX} mouseY={mouseY} />
       <ParticleField scrollProgress={scrollProgress} mouseX={mouseX} mouseY={mouseY} />
 
+      {/* Title + scroll hint — behind dots (z-10) */}
       <section className="fixed inset-0 z-10 flex flex-col items-center justify-center pointer-events-none">
         <div
           className="text-center transition-all duration-1000"
@@ -100,20 +100,6 @@ export default function Index() {
           <p className="text-poetic text-2xl md:text-3xl max-w-md mx-auto">
             {t("hero.subtitle")}
           </p>
-          <a
-            href="https://ko-fi.com/radiogaga/tiers"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 mt-6 px-4 py-2 rounded-full bg-foreground/10 backdrop-blur-sm border border-foreground/10 text-foreground/70 hover:text-foreground hover:bg-foreground/20 transition-all duration-300 pointer-events-auto"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M18 8h1a4 4 0 010 8h-1" /><path d="M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8z" /><line x1="6" y1="1" x2="6" y2="4" /><line x1="10" y1="1" x2="10" y2="4" /><line x1="14" y1="1" x2="14" y2="4" />
-            </svg>
-            <span className="text-[10px] font-mono tracking-wider uppercase">Support</span>
-          </a>
-          <div className="mt-6 w-full px-4">
-            <CostBanner />
-          </div>
         </div>
 
         <div
@@ -124,6 +110,8 @@ export default function Index() {
           <div className="w-px h-8 bg-foreground/20 animate-breathe" />
         </div>
       </section>
+
+
 
       <div
         className="fixed inset-0 z-20 pointer-events-none"

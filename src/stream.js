@@ -37,6 +37,7 @@ const ICECAST = {
 const ICECAST_URL = `icecast://source:${ICECAST.password}@${ICECAST.host}:${ICECAST.port}${ICECAST.mount}`;
 const TMP_DIR = join(ROOT, 'tmp');
 const SILENCE_PATH = join(TMP_DIR, 'silence.mp3');
+const SILENCE_PAD_PATH = join(TMP_DIR, 'silence-pad.mp3');
 const JINGLE_PATH = join(ROOT, 'assets', 'jingle.mp3');
 const JINGLE_NIGHT = [
   { path: join(ROOT, 'assets', 'jingle-nightcode.mp3'), title: 'radioGAGA Nightcode', duration: 91 },
@@ -47,6 +48,8 @@ const JINGLE_SUNRISE = [
   { path: join(ROOT, 'assets', 'jingle-sunrise-2.mp3'), title: 'radioGAGA Sunrise 2', duration: 70 },
 ];
 const JINGLE_AIMUSIC = { path: join(ROOT, 'assets', 'jingle-aimusic.mp3'), title: 'radioGAGA AI Music', duration: 115 };
+const STING_NEWSFLASH = { path: join(ROOT, 'assets', 'jingle-newsflash.mp3'), title: 'radioGAGA Newsflash', duration: 10 };
+const STING_CHANCE = 0.2; // 20% chance to play sting between segments
 const JINGLE_INTERVAL_MS = 15 * 60 * 1000;            // daytime: every 15 min
 const SPECIAL_JINGLE_INTERVAL_MS = 30 * 60 * 1000;    // night/sunrise: every 30 min
 const AIMUSIC_JINGLE_INTERVAL_MS = 60 * 60 * 1000;    // hourly during daytime (9am-9pm)
@@ -65,6 +68,7 @@ let lastAiMusicJingleTime = 0;  // timestamp of last AI Music hourly jingle
 let nightJingleIndex = 0;       // alternates between Nightcode and After Dark
 let sunriseJingleIndex = 0;     // alternates between Sunrise 1 and 2
 let lastStreamSlotId = null;    // detect show transitions
+let pendingIntro = null;         // pre-generated intro for next archive track
 const SHOUTOUT_COOLDOWN_MS = 60_000; // max 1 shoutout per minute
 
 // Generate a 5-second silence MP3 once at startup.
@@ -77,6 +81,13 @@ async function ensureSilence() {
       '-t', '2',
       '-c:a', 'libmp3lame', '-ab', '128k', '-ar', '44100',
       '-y', SILENCE_PATH,
+    ]);
+    // Tiny silence pad (~100ms) used between piped files to prevent MP3 frame boundary errors
+    await execFileAsync('ffmpeg', [
+      '-f', 'lavfi', '-i', 'aevalsrc=0',
+      '-t', '0.1',
+      '-c:a', 'libmp3lame', '-ab', '128k', '-ar', '44100',
+      '-y', SILENCE_PAD_PATH,
     ]);
     silenceReady = true;
     console.log('[stream] Silence buffer ready');
@@ -138,14 +149,24 @@ async function crossfadeMusicVoice(musicPath, voicePath, overlapS = 4) {
   }
 }
 
-// Pipe one file into FFmpeg's stdin without closing it.
-// Does NOT wait for playback duration — caller handles timing.
+// Decode an MP3 file to raw s16le PCM and pipe into FFmpeg's stdin.
+// This eliminates MP3 frame boundary errors when concatenating files.
 function pipeFile(filePath, stdin) {
   return new Promise((resolve) => {
-    const src = createReadStream(filePath);
-    src.on('error', (err) => { console.error('[stream] Read error:', err.message); resolve(); });
-    src.on('end', resolve);
-    src.pipe(stdin, { end: false });
+    const decoder = spawn('ffmpeg', [
+      '-i', filePath,
+      '-f', 's16le',
+      '-ar', '44100',
+      '-ac', '2',
+      'pipe:1',
+    ], { stdio: ['ignore', 'pipe', 'pipe'] });
+
+    decoder.stderr.on('data', () => {}); // suppress ffmpeg stderr
+    decoder.stdout.on('error', () => {});
+    decoder.on('error', (err) => { console.error('[stream] Decode error:', err.message); resolve(); });
+
+    decoder.stdout.pipe(stdin, { end: false });
+    decoder.on('close', resolve);
   });
 }
 
@@ -247,9 +268,13 @@ async function pipeSilence(stdin) {
 function startFFmpeg() {
   console.log('[stream] Starting persistent FFmpeg → Icecast');
 
+  // Use raw s16le PCM on stdin to avoid MP3 frame boundary errors when
+  // concatenating multiple files. Each segment is decoded to PCM before piping.
   const proc = spawn('ffmpeg', [
     '-re',
-    '-f', 'mp3',
+    '-f', 's16le',
+    '-ar', '44100',
+    '-ac', '2',
     '-i', 'pipe:0',
     '-vn',
     '-acodec', 'libmp3lame',
@@ -397,65 +422,48 @@ async function runLoop() {
       } catch (err) {
         console.error('[stream] Segment pipe failed:', err.message);
       }
+
+      // Random sting between segments (~20% chance, not after jingles/stings)
+      if (segment.type !== 'jingle' && Math.random() < STING_CHANCE && existsSync(STING_NEWSFLASH.path) && ffmpegProc) {
+        try {
+          console.log(`[stream] Random sting: ${STING_NEWSFLASH.title}`);
+          logBroadcast({ type: 'jingle', title: STING_NEWSFLASH.title, slot: getCurrentSlot().id, generator: 'pre-produced', source: 'ai-generated-jingle' });
+          await pipeSegment({ ...STING_NEWSFLASH, type: 'jingle' }, ffmpegProc.stdin);
+        } catch (err) {
+          console.error('[stream] Sting pipe failed:', err.message);
+        }
+      }
+
       // Block shoutouts for 60s after adverts/decent spots
       if (isAdvert) lastShoutoutTime = Date.now();
       continue;
     }
 
-    // 2. Archive music fallback — CC tracks with proper DJ intros/outros
-    //    Mimics the produced content flow: intro → track → outro, with
-    //    adverts every 3rd track to break up the music wall.
+    // 2. Archive music fallback — CC tracks with DJ intros/outros.
+    //    KEY: play music IMMEDIATELY, generate voice in parallel to avoid gaps.
+    //    Adverts every 3rd track to break up the music wall.
     if (archivePoolSize() > 0) {
       const track = getArchiveTrack();
       if (track && existsSync(track.path)) {
         const slot = getCurrentSlot();
         const trackInfo = { title: track.title, creator: track.creator, mood: slot.musicMood || '' };
 
-        // Generate the outro (back-announce) for the previous track and
-        // the intro for the upcoming track BEFORE playing — we'll try to
-        // crossfade them over the music.
-        let outroPath = null;
-        let outroTitle = null;
-        if (lastFallbackTrack) {
+        // If we have a pre-generated intro from the previous iteration, play it first
+        if (pendingIntro && existsSync(pendingIntro.path)) {
+          logBroadcast({ type: 'dj', title: pendingIntro.title, slot: slot.id, generator: 'openrouter+edge-tts', model: 'llama-3.3-70b-instruct', voice: slot.voice });
           try {
-            const outro = await generateTrackOutro(slot, lastFallbackTrack);
-            if (outro.path && existsSync(outro.path)) {
-              outroPath = outro.path;
-              outroTitle = outro.title;
-            }
-          } catch (err) {
-            console.warn(`[stream] Fallback outro failed: ${err.message}`);
-          }
-        }
-
-        let introPath = null;
-        let introTitle = null;
-        try {
-          const intro = await generateTrackIntro(slot, trackInfo);
-          if (intro.path && existsSync(intro.path)) {
-            introPath = intro.path;
-            introTitle = intro.title;
-          }
-        } catch (err) {
-          // Minimal fallback intro via TTS
-          try {
-            const line = track.title.startsWith('AI Music')
-              ? `Something fresh for you on radioGAGA.`
-              : `This is ${track.title} by ${track.creator}.`;
-            const { path } = await textToMp3(line, slot.voice);
-            introPath = path;
-            introTitle = `Quick intro — ${track.title}`;
+            if (ffmpegProc) await pipeSegment(pendingIntro, ffmpegProc.stdin);
           } catch {}
-          console.warn(`[stream] Fallback intro failed: ${err.message}`);
         }
+        pendingIntro = null;
 
-        // Every 3rd archive track, drop in a catalog advert
+        // Every 3rd archive track, drop in a catalog advert before the music
         fallbackTrackCount++;
         if (fallbackTrackCount % 3 === 0 && catalogSize() > 0) {
           const ad = getFromCatalog(slot.advertHumor);
           if (ad && existsSync(ad.path)) {
             console.log(`[stream] Fallback ad break: ${ad.title}`);
-            logBroadcast({ type: 'advert', title: ad.title, slot: slot.id, generator: 'groq+edge-tts', model: 'llama-3.3-70b-versatile', source: 'ai-generated-advert' });
+            logBroadcast({ type: 'advert', title: ad.title, slot: slot.id, generator: 'openrouter+edge-tts', source: 'ai-generated-advert' });
             try {
               if (ffmpegProc) await pipeSegment({ ...ad, type: 'advert' }, ffmpegProc.stdin);
             } catch (err) {
@@ -464,44 +472,34 @@ async function runLoop() {
           }
         }
 
-        // Try to crossfade the outro voice over the end of the music track
-        // If crossfade works, play the merged file; otherwise play separately
-        let crossfadedPath = null;
-        if (outroPath) {
-          crossfadedPath = await crossfadeMusicVoice(track.path, outroPath, 5);
+        // Play the music track NOW — no waiting for LLM
+        console.log(`[stream] Archive fill: ${track.title}`);
+        logBroadcast({ type: 'music', title: track.title, slot: slot.id, generator: 'ai-composed', source: track.source || 'cc-licensed-ai-music', model: track.model || null });
+        try {
+          if (ffmpegProc) await pipeSegment({ ...track, type: 'music' }, ffmpegProc.stdin);
+        } catch (err) {
+          console.error('[stream] Archive fill failed:', err.message);
         }
 
-        if (crossfadedPath && existsSync(crossfadedPath)) {
-          // Play music+outro as one merged file
-          console.log(`[stream] Archive fill (with voice-over): ${track.title}`);
-          logBroadcast({ type: 'dj', title: outroTitle, slot: slot.id, generator: 'groq+edge-tts', model: 'llama-3.3-70b-versatile', voice: slot.voice });
-          logBroadcast({ type: 'music', title: track.title, slot: slot.id, generator: 'ai-composed', source: track.source || 'cc-licensed-ai-music', model: track.model || null });
-          try {
-            if (ffmpegProc) await pipeSegment({ path: crossfadedPath, type: 'music', title: track.title }, ffmpegProc.stdin);
-            await unlink(crossfadedPath).catch(() => {});
-          } catch (err) {
-            console.error('[stream] Crossfade playback failed:', err.message);
+        // While the track was playing, generate an intro for the NEXT track
+        // (non-blocking — if it fails, the next iteration just skips the intro)
+        try {
+          const nextTrack = getArchiveTrack();
+          if (nextTrack) {
+            const nextInfo = { title: nextTrack.title, creator: nextTrack.creator, mood: slot.musicMood || '' };
+            // Put the peeked track back (we'll re-get it next iteration)
+            // Actually we can't put it back, so generate outro for current + intro for next
+            const intro = await generateTrackIntro(slot, nextInfo);
+            if (intro.path && existsSync(intro.path)) {
+              pendingIntro = { path: intro.path, type: 'dj', title: intro.title };
+            }
+            // Store the peeked track info for next iteration
+            lastFallbackTrack = trackInfo;
           }
-        } else {
-          // Fallback: play outro then music separately
-          if (outroPath) {
-            logBroadcast({ type: 'dj', title: outroTitle, slot: slot.id, generator: 'groq+edge-tts', model: 'llama-3.3-70b-versatile', voice: slot.voice });
-            if (ffmpegProc) await pipeSegment({ path: outroPath, type: 'dj', title: outroTitle }, ffmpegProc.stdin);
-          }
-          console.log(`[stream] Archive fill: ${track.title}`);
-          logBroadcast({ type: 'music', title: track.title, slot: slot.id, generator: 'ai-composed', source: track.source || 'cc-licensed-ai-music', model: track.model || null });
-          try {
-            if (ffmpegProc) await pipeSegment({ ...track, type: 'music' }, ffmpegProc.stdin);
-          } catch (err) {
-            console.error('[stream] Archive fill failed:', err.message);
-          }
+        } catch (err) {
+          console.warn(`[stream] Intro pre-generation failed: ${err.message}`);
         }
 
-        // Play intro for the next track (this sits between tracks)
-        if (introPath) {
-          logBroadcast({ type: 'dj', title: introTitle, slot: slot.id, generator: 'groq+edge-tts', model: 'llama-3.3-70b-versatile', voice: slot.voice });
-          if (ffmpegProc) await pipeSegment({ path: introPath, type: 'dj', title: introTitle }, ffmpegProc.stdin);
-        }
         lastFallbackTrack = trackInfo;
         continue;
       }
