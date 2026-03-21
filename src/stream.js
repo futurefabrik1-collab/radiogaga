@@ -46,7 +46,7 @@ const TELEGRAM_PROMO = { path: join(ROOT, 'assets', 'telegram-promo.mp3'), title
 let lastPromoTime = Date.now(); // don't play promo immediately on start
 const PROMO_INTERVAL_MS = 15 * 60 * 1000; // every 15 min
 const STING_NEWSFLASH = { path: join(ROOT, 'assets', 'jingle-newsflash.mp3'), title: 'radioGAGA Newsflash', duration: 10 };
-const STING_CHANCE = 0.2; // 20% chance to play sting between segments
+const STING_CHANCE = 0.05; // 5% chance to play sting between segments
 const JINGLE_INTERVAL_MS = 15 * 60 * 1000;            // play short jingle every 15 min
 
 let ffmpegProc = null;
@@ -313,45 +313,44 @@ async function runLoop() {
       continue;
     }
 
-    // 0a. Station jingle — long on first load (cold start buffer), short every 15 min after
+    // 0a. Cold start: intro dialogue + jingle (ONCE only)
+    if (!firstJinglePlayed && ffmpegProc) {
+      firstJinglePlayed = true;
+      lastJingleTime = Date.now();
+      lastPromoTime = Date.now();
+      const slot = getCurrentSlot();
+      lastStreamSlotId = slot.id;
+
+      if (existsSync(INTRO_DIALOGUE.path)) {
+        console.log('[stream] Cold start: intro dialogue → jingle');
+        try { await pipeSegment({ ...INTRO_DIALOGUE, type: 'jingle' }, ffmpegProc.stdin); } catch {}
+      }
+      if (existsSync(JINGLE_SHORT.path)) {
+        try { await pipeSegment({ ...JINGLE_SHORT, type: 'jingle' }, ffmpegProc.stdin); } catch {}
+      }
+    }
+
+    // 0a-2. Periodic jingle — every 15 min (NOT on cold start, NOT stacking)
     {
       const slot = getCurrentSlot();
       const showChanged = lastStreamSlotId && slot.id !== lastStreamSlotId;
-      const jingleDue = Date.now() - lastJingleTime >= JINGLE_INTERVAL_MS;
       lastStreamSlotId = slot.id;
 
-      if ((!firstJinglePlayed || jingleDue || showChanged) && ffmpegProc) {
-        // First jingle after start: play the long version (buffer for new listeners)
-        // Cold start: intro dialogue → short jingle → feed
-        if (!firstJinglePlayed && existsSync(INTRO_DIALOGUE.path)) {
-          console.log(`[stream] Cold start: intro dialogue → short jingle`);
-          logBroadcast({ type: 'jingle', title: INTRO_DIALOGUE.title, slot: slot.id, generator: 'pre-produced', source: 'ai-generated-jingle' });
-          try { await pipeSegment({ ...INTRO_DIALOGUE, type: 'jingle' }, ffmpegProc.stdin); } catch {}
-        }
-        const jingle = JINGLE_SHORT; // always short — long jingle retired
-
-        if (existsSync(jingle.path)) {
-          if (!firstJinglePlayed) console.log(`[stream] Cold start: ${jingle.title}`);
-          else if (showChanged) console.log(`[stream] Show transition → ${slot.name}`);
-          else console.log(`[stream] Periodic: ${jingle.title}`);
-          logBroadcast({ type: 'jingle', title: jingle.title, slot: slot.id, generator: 'pre-produced', source: 'ai-generated-jingle' });
-          try {
-            await pipeSegment({ ...jingle, type: 'jingle' }, ffmpegProc.stdin);
-          } catch (err) {
-            console.error('[stream] Jingle pipe failed:', err.message);
-          }
-          firstJinglePlayed = true;
+      if ((Date.now() - lastJingleTime >= JINGLE_INTERVAL_MS || showChanged) && ffmpegProc) {
+        if (existsSync(JINGLE_SHORT.path)) {
+          console.log(`[stream] ${showChanged ? `Show transition → ${slot.name}` : 'Periodic jingle'}`);
+          try { await pipeSegment({ ...JINGLE_SHORT, type: 'jingle' }, ffmpegProc.stdin); } catch {}
           lastJingleTime = Date.now();
         }
       }
     }
 
-    // 0a-2. Telegram promo — short CTA every 15 min
-    if (Date.now() - lastPromoTime >= PROMO_INTERVAL_MS && existsSync(TELEGRAM_PROMO.path) && ffmpegProc) {
-      try {
-        await pipeSegment({ ...TELEGRAM_PROMO, type: 'jingle' }, ffmpegProc.stdin);
+    // 0a-3. Telegram promo — every 15 min (offset from jingle by checking separately)
+    if (Date.now() - lastPromoTime >= PROMO_INTERVAL_MS && ffmpegProc) {
+      if (existsSync(TELEGRAM_PROMO.path)) {
+        try { await pipeSegment({ ...TELEGRAM_PROMO, type: 'jingle' }, ffmpegProc.stdin); } catch {}
         lastPromoTime = Date.now();
-      } catch {}
+      }
     }
 
     // 0b. Shoutouts — single (1 per 5 min) or section mode (3+ queued = rapid fire with intro/outro)
