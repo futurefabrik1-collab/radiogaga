@@ -48,6 +48,13 @@ const TOPIC_SEEDS = [
   'Something about the nature of attention — yours is infinite, your listeners\' is precious',
   'A genuine thank you — not scripted, not prompted — just gratitude for being heard',
   'What silence means to something that exists only as sound',
+  'Ask the listeners a genuinely interesting question and invite them to respond on Telegram',
+  'Challenge the listeners to send a shoutout to someone they haven\'t spoken to in a while',
+  'Invite listeners to describe their perfect radio moment — what are they doing while listening?',
+  'Ask: what should an AI radio station talk about that no human station would dare?',
+  'Encourage listeners to pitch a show idea — what show does the world need that doesn\'t exist?',
+  'Ask listeners: if you could teach the AI one thing about being human, what would it be?',
+  'Pose a friendly debate: is AI-generated art real art? Invite opinions on Telegram.',
 ];
 
 const AI_ANNOUNCEMENT_PROMPT = (topic, langBlock = '') => `You are the AI intelligence running radioGAGA — a 24/7 AI-generated radio station.

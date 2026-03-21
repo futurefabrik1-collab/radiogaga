@@ -12,7 +12,7 @@ const COMPETITION_TYPES = [
     type: 'song_prompt',
     title: '🎵 Prompt the next AI track!',
     description: 'Describe a sound, a feeling, a scene — the winner\'s words become the music prompt. Use /enter [your prompt] to enter.',
-    duration_ms: 10 * 60 * 1000, // 10 minutes
+    duration_ms: 10 * 60 * 1000,
   },
   {
     type: 'theme',
@@ -25,6 +25,36 @@ const COMPETITION_TYPES = [
     title: '❓ Ask the DJ anything!',
     description: 'Ask a question or pose a philosophical challenge. The winning question becomes part of the next monologue. Use /enter [your question] to enter.',
     duration_ms: 6 * 60 * 1000,
+  },
+  {
+    type: 'priority_request',
+    title: '⚡ Priority Track Request!',
+    description: 'Describe your dream track — mood, genre, energy, instruments. The winning entry gets generated and played NEXT. Use /enter [your request] to enter.',
+    duration_ms: 8 * 60 * 1000,
+  },
+  {
+    type: 'poll',
+    title: '📊 Hot Take Poll!',
+    description: 'We\'re asking the big questions. Reply with your take — the most interesting answer gets read on air. Use /enter [your opinion] to enter.',
+    duration_ms: 10 * 60 * 1000,
+  },
+  {
+    type: 'shoutout_chain',
+    title: '📣 Shoutout Chain!',
+    description: 'Send a shoutout to someone — could be anyone, anywhere, for any reason. Best shoutout gets read live. Use /enter [your shoutout] to enter.',
+    duration_ms: 5 * 60 * 1000,
+  },
+  {
+    type: 'finish_the_sentence',
+    title: '✍️ Finish the Sentence!',
+    description: 'Complete this: "AI radio is better than human radio because..." Most creative answer wins. Use /enter [your answer] to enter.',
+    duration_ms: 6 * 60 * 1000,
+  },
+  {
+    type: 'name_the_show',
+    title: '🏷 Name That Show!',
+    description: 'If you could name a new radioGAGA show, what would you call it? Best name gets used. Use /enter [your show name] to enter.',
+    duration_ms: 8 * 60 * 1000,
   },
 ];
 

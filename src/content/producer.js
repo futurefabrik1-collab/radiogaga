@@ -110,7 +110,7 @@ let lastNewsHour = -1;   // prevent duplicate news per hour
 let lastTalkTime = Date.now(); // timestamp of last talk segment queued
 let lastAIAnnouncementTime = 0; // timestamp of last AI announcement
 const AI_ANNOUNCEMENT_INTERVAL_MS = 33 * 60 * 1000; // ~3% of airtime: one every 33 min
-const COMPETITION_EVERY_N_CYCLES = 5;
+const COMPETITION_EVERY_N_CYCLES = 3; // more frequent competitions for engagement
 
 async function refreshHeadlines() {
   const now = Date.now();

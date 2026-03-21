@@ -42,6 +42,9 @@ const SILENCE_PAD_PATH = join(TMP_DIR, 'silence-pad.mp3');
 const JINGLE_SHORT = { path: join(ROOT, 'assets', 'jingle-aimusic-short.mp3'), title: 'radioGAGA', duration: 24 };
 const JINGLE_LONG = { path: join(ROOT, 'assets', 'jingle-aimusic-long.mp3'), title: 'radioGAGA AI Music', duration: 72 };
 const INTRO_DIALOGUE = { path: join(ROOT, 'assets', 'intro-dialogue.mp3'), title: 'radioGAGA Intro', duration: 12 };
+const TELEGRAM_PROMO = { path: join(ROOT, 'assets', 'telegram-promo.mp3'), title: 'Join Telegram', duration: 11 };
+let lastPromoTime = 0;
+const PROMO_INTERVAL_MS = 15 * 60 * 1000; // every 15 min
 const STING_NEWSFLASH = { path: join(ROOT, 'assets', 'jingle-newsflash.mp3'), title: 'radioGAGA Newsflash', duration: 10 };
 const STING_CHANCE = 0.2; // 20% chance to play sting between segments
 const JINGLE_INTERVAL_MS = 15 * 60 * 1000;            // play short jingle every 15 min
@@ -342,6 +345,14 @@ async function runLoop() {
           lastJingleTime = Date.now();
         }
       }
+    }
+
+    // 0a-2. Telegram promo — short CTA every 15 min
+    if (Date.now() - lastPromoTime >= PROMO_INTERVAL_MS && existsSync(TELEGRAM_PROMO.path) && ffmpegProc) {
+      try {
+        await pipeSegment({ ...TELEGRAM_PROMO, type: 'jingle' }, ffmpegProc.stdin);
+        lastPromoTime = Date.now();
+      } catch {}
     }
 
     // 0b. Shoutouts — single (1 per 5 min) or section mode (3+ queued = rapid fire with intro/outro)
