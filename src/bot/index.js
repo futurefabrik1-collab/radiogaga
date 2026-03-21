@@ -88,7 +88,6 @@ async function generateShoutoutIntro(name, location, isVoice) {
   const type = isVoice ? 'voice message' : 'shoutout';
   try {
     const response = await ollama.generate({
-      model: 'llama3.2',
       prompt: `You are ${slot.presenterName}, a radio presenter on radioGAGA.
 Your style: ${slot.djStyle.split('\n')[0]}
 Write a 10–20 word intro for a listener ${type}. Be warm, spontaneous, in character.
@@ -96,7 +95,6 @@ The listener's FIRST NAME is ${firstName}${location ? ` and they're tuning in fr
 Use ONLY their first name "${firstName}". Do NOT rename them or make up a fictional name.
 Sound excited to hear from them. Output ONLY the spoken words:`,
       options: { temperature: 0.95, num_predict: 60 },
-      stream: false,
     });
     return { text: response.response.trim(), voice: slot.voice, energy: slot.energy };
   } catch {

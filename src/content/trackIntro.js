@@ -58,10 +58,8 @@ Style: ${slot.djStyle.split('\n')[0]}
 Output only the spoken words:`;
 
   const response = await ollama.generate({
-    model: 'llama3.2',
     prompt,
     options: { temperature: 0.9, num_predict: 120 },
-    stream: false,
   });
 
   const script = response.response.trim();
@@ -106,10 +104,8 @@ Style: ${slot.djStyle.split('\n')[0]}
 Output only the spoken words:`;
 
   const response = await ollama.generate({
-    model: 'llama3.2',
     prompt,
     options: { temperature: 0.9, num_predict: 100 },
-    stream: false,
   });
 
   const script = response.response.trim();

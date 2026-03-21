@@ -9,8 +9,8 @@
 
 import { spawn, execFile } from 'child_process';
 import { promisify } from 'util';
-import { createReadStream, existsSync, mkdirSync } from 'fs';
-import { unlink, writeFile } from 'fs/promises';
+import { existsSync, mkdirSync } from 'fs';
+import { unlink } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { queue } from './queue.js';
@@ -21,6 +21,7 @@ import { postNowPlaying } from './discord.js';
 import { getCurrentSlot } from './schedule.js';
 import { generateTrackIntro, generateTrackOutro } from './content/trackIntro.js';
 import { textToMp3 } from './content/tts.js';
+import { ollama as llm } from './content/ollama.js';
 import { getNextShoutout, shoutoutQueue } from './bot/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -40,7 +41,6 @@ const TMP_DIR = join(ROOT, 'tmp');
 const SILENCE_PATH = join(TMP_DIR, 'silence.mp3');
 const SILENCE_PAD_PATH = join(TMP_DIR, 'silence-pad.mp3');
 const JINGLE_SHORT = { path: join(ROOT, 'assets', 'jingle-aimusic-short.mp3'), title: 'radioGAGA', duration: 24 };
-const JINGLE_LONG = { path: join(ROOT, 'assets', 'jingle-aimusic-long.mp3'), title: 'radioGAGA AI Music', duration: 72 };
 const INTRO_DIALOGUE = { path: join(ROOT, 'assets', 'intro-dialogue.mp3'), title: 'radioGAGA Intro', duration: 12 };
 const TELEGRAM_PROMO = { path: join(ROOT, 'assets', 'telegram-promo.mp3'), title: 'Join Telegram', duration: 11 };
 let lastPromoTime = Date.now(); // don't play promo immediately on start
@@ -48,7 +48,6 @@ const PROMO_INTERVAL_MS = 15 * 60 * 1000; // every 15 min
 const STING_NEWSFLASH = { path: join(ROOT, 'assets', 'jingle-newsflash.mp3'), title: 'radioGAGA Newsflash', duration: 10 };
 const STING_CHANCE = 0.2; // 20% chance to play sting between segments
 const JINGLE_INTERVAL_MS = 15 * 60 * 1000;            // play short jingle every 15 min
-const NIGHT_HOURS = new Set([21, 22, 23, 0, 1, 2, 3, 4]);   // 9pm–4am
 
 let ffmpegProc = null;
 let running = false;
@@ -359,8 +358,6 @@ async function runLoop() {
     {
     const slot = getCurrentSlot();
     const cooldown = (slot.shoutoutCooldownS ?? 300) * 1000 || DEFAULT_SHOUTOUT_COOLDOWN_MS;
-    const { ollama: llm } = await import('./content/ollama.js');
-    const { textToMp3 } = await import('./content/tts.js');
     const queueSize = shoutoutQueue.length;
 
     if (Date.now() - lastShoutoutTime >= cooldown && queueSize > 0) {

@@ -58,10 +58,8 @@ HOOK: [the interesting specific thing]
 Nothing else.`;
 
   const identityResponse = await ollama.generate({
-    model: 'llama3.2',
     prompt: identityPrompt,
     options: { temperature: 1.0, num_predict: 100 },
-    stream: false,
   });
 
   const identity = identityResponse.response.trim();
@@ -100,10 +98,8 @@ Do NOT include stage directions, descriptions, or anything outside the [NAME]: f
 Write the interview now:`;
 
   const dialogueResponse = await ollama.generate({
-    model: 'llama3.2',
     prompt: dialoguePrompt,
     options: { temperature: 0.88, num_predict: 400 },
-    stream: false,
   });
 
   const script = dialogueResponse.response.trim();

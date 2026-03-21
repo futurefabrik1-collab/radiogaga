@@ -191,13 +191,11 @@ NOW SPEAK — live on air, directly to the listener:`;
 
   try {
     const response = await ollama.generate({
-      model: 'llama3.2',
       prompt,
       options: {
         temperature: 0.88,
         num_predict: Math.ceil(targetWords * 1.8),
       },
-      stream: false,
     });
 
     let raw = response.response.trim();
@@ -206,17 +204,6 @@ NOW SPEAK — live on air, directly to the listener:`;
     const langLabel = lang ? ` [${lang.name}]` : '';
     console.log(`[dj] Script ready (${slot.name})${langLabel}`);
     console.log(`[dj] Content: "${raw.slice(0, 120)}..."`);
-
-    // Log translation for foreign language segments
-    if (lang) {
-      try {
-        const translation = await ollama.generate({
-          prompt: `Translate this ${lang.name} radio script to English. Output ONLY the translation, nothing else:\n\n${raw}`,
-          options: { temperature: 0.3, num_predict: Math.ceil(raw.split(/\s+/).length * 1.5) },
-        });
-        console.log(`[dj] Translation: "${translation.response.trim().slice(0, 200)}..."`);
-      } catch {}
-    }
 
     // For dialogue shows, render multi-voice audio
     if (isDialogue) {

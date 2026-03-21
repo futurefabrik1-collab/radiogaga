@@ -4,7 +4,6 @@
 import { ollama } from './ollama.js';
 import { rollLanguage, languagePromptBlock } from './languages.js';
 import { textToMp3 } from './tts.js';
-import { generateMusic } from './music.js';
 
 // Advert voice pool — distinct from presenter voices for clear separation.
 const AD_VOICES = [
@@ -121,10 +120,8 @@ export async function generateCoreMessage(slot) {
   console.log(`[advert] Generating core message spot (${topic.split(' ')[0]})...`);
 
   const response = await ollama.generate({
-    model: 'llama3.2',
     prompt: CORE_MESSAGE_PROMPT(topic),
     options: { temperature: 0.7, num_predict: 150 },
-    stream: false,
   });
 
   const script = response.response.trim();
@@ -172,20 +169,12 @@ export async function generateAdvert(slot) {
 
   // Generate script
   const response = await ollama.generate({
-    model: 'llama3.2',
     prompt: AD_PROMPT(category, humor, languagePromptBlock(lang)),
     options: { temperature: 0.95, num_predict: 150 },
-    stream: false,
   });
 
   const script = response.response.trim();
   console.log(`[advert] Script: "${script.slice(0, 80)}..."`);
-  if (lang) {
-    try {
-      const tr = await ollama.generate({ prompt: `Translate to English. Output ONLY the translation:\n\n${script}`, options: { temperature: 0.3, num_predict: 120 } });
-      console.log(`[advert] Translation: "${tr.response.trim().slice(0, 100)}..."`);
-    } catch {}
-  }
 
   // TTS — use language-matched voice or English ad voice
   const voice = lang ? lang.voice : pickAdVoice(slot?.voice);
