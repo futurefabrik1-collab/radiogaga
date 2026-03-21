@@ -1,8 +1,10 @@
-// Discord integration — posts now-playing updates to a webhook.
-// Only posts on show transitions (once per hour). Minimal noise.
+// Discord integration — posts twice per day (morning + evening).
 
 const WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
-let lastPostedShow = '';
+let lastPostDate = '';
+let postsToday = 0;
+const MAX_POSTS_PER_DAY = 2;
+const POST_HOURS = [8, 19]; // 8am and 7pm
 
 const EMOJI = {
   dj: '🎙',
@@ -18,12 +20,18 @@ const EMOJI = {
 export async function postNowPlaying(segment, showName, presenterName) {
   if (!WEBHOOK_URL) return;
 
-  const showChanged = showName !== lastPostedShow;
+  // Reset counter daily
+  const today = new Date().toISOString().slice(0, 10);
+  if (today !== lastPostDate) { postsToday = 0; lastPostDate = today; }
 
-  // Only post on show transitions (once per hour)
+  // Only post at designated hours, max 2/day
+  const hour = new Date().getHours();
+  if (postsToday >= MAX_POSTS_PER_DAY || !POST_HOURS.includes(hour)) return;
+  const showChanged = showName !== lastPostedShow;
   if (!showChanged) return;
 
   lastPostedShow = showName;
+  postsToday++;
 
   const emoji = EMOJI[segment.type] || '●';
   const now = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
