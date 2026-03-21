@@ -108,6 +108,7 @@ let cycleCount = 0;       // full DJ+music cycles since last advert
 let lastSlotId = null;
 let lastTrackInfo = null; // { title, creator, mood } — for back-announce after track plays
 let lastNewsHour = -1;   // prevent duplicate news per hour
+let pendingNewsBulletin = false; // prevents double-generation
 let lastReportageHour = -1; // one reportage per hour
 let lastTalkTime = Date.now(); // timestamp of last talk segment queued
 let lastAIAnnouncementTime = 0; // timestamp of last AI announcement
@@ -300,13 +301,14 @@ async function produceGuestSegment(slot) {
 
 async function produceNewsBulletin() {
   const current = await refreshHeadlines();
-  if (!current.length) return;
+  if (!current.length) { pendingNewsBulletin = false; return; }
   try {
     const bulletin = await generateNewsBulletin(current);
-    queue.push(bulletin);
-    lastNewsHour = new Date().getHours();
+    // Unshift to FRONT of queue — news must play first at :00
+    queue.unshift(bulletin);
     lastTalkTime = Date.now();
-    console.log(`[producer] News bulletin queued: ${bulletin.title}`);
+    pendingNewsBulletin = false;
+    console.log(`[producer] News bulletin PRIORITY queued: ${bulletin.title}`);
 
     // Follow news with weather forecast
     try {
@@ -390,12 +392,16 @@ async function loop() {
       djSegmentCount = 0;
     }
 
-    // Hourly news bulletin — fires within first 5 minutes of each hour
+    // Hourly news bulletin — pre-generate at :55, ready to play at :00
     const currentHour = new Date().getHours();
     const currentMinute = new Date().getMinutes();
-    if (currentMinute < 5 && currentHour !== lastNewsHour) {
-      console.log(`[producer] Scheduling ${currentHour}:00 news bulletin`);
-      produceNewsBulletin().catch(() => {});
+    const nextHour = (currentHour + 1) % 24;
+    if (currentMinute >= 55 && nextHour !== lastNewsHour && !pendingNewsBulletin) {
+      console.log(`[producer] Pre-generating ${nextHour}:00 news bulletin`);
+      pendingNewsBulletin = true;
+      produceNewsBulletin().then(() => {
+        lastNewsHour = nextHour;
+      }).catch(() => { pendingNewsBulletin = false; });
     }
 
     // Hourly reportage — fires mid-hour (minutes 20-25), one per hour
