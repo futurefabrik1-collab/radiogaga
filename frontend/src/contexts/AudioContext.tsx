@@ -53,6 +53,18 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     audio.addEventListener("error", reconnect);
     audio.addEventListener("ended", reconnect);
 
+    // Set up Media Session API — enables native OS controls (lock screen, notification bar, PiP)
+    if ("mediaSession" in navigator) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: "radioGAGA",
+        artist: "100% AI Generated Radio",
+        album: "Live Stream",
+        artwork: [
+          { src: "/favicon.ico", sizes: "64x64", type: "image/x-icon" },
+        ],
+      });
+    }
+
     // Autoplay muted — browsers allow this
     audio.src = STREAM_URL;
     audio.load();
@@ -136,6 +148,45 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       setMuted(false);
     }
   }, [playing, muted, volume]);
+
+  // Wire up Media Session controls (play/pause from OS, notification bar, PiP overlay)
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return;
+    navigator.mediaSession.setActionHandler("play", togglePlay);
+    navigator.mediaSession.setActionHandler("pause", togglePlay);
+    navigator.mediaSession.setActionHandler("stop", () => {
+      const audio = audioRef.current;
+      if (audio) { audio.pause(); audio.src = "about:blank"; }
+      setPlaying(false); setMuted(true); setStreamConnected(false);
+    });
+    // Update playback state
+    navigator.mediaSession.playbackState = playing && !muted ? "playing" : playing ? "paused" : "none";
+  }, [playing, muted, togglePlay]);
+
+  // Update Media Session metadata with current show info
+  useEffect(() => {
+    if (!("mediaSession" in navigator) || !playing) return;
+    const updateMeta = async () => {
+      try {
+        const res = await fetch("/api/now-playing");
+        const data = await res.json();
+        const showRes = await fetch("/api/shows");
+        const shows = await showRes.json();
+        const show = shows.find((s: any) => s.id === data.currentShow);
+        if (show) {
+          navigator.mediaSession.metadata = new MediaMetadata({
+            title: show.name + (data.nowPlaying ? ` — ${data.nowPlaying.title?.slice(0, 40)}` : ""),
+            artist: show.presenterName + (show.coHost ? ` & ${show.coHost}` : ""),
+            album: "radioGAGA · 100% AI Radio",
+            artwork: [{ src: "/favicon.ico", sizes: "64x64", type: "image/x-icon" }],
+          });
+        }
+      } catch {}
+    };
+    updateMeta();
+    const id = setInterval(updateMeta, 15000);
+    return () => clearInterval(id);
+  }, [playing]);
 
   const getFrequencyData = useCallback(() => {
     if (!analyserRef.current) return null;

@@ -27,10 +27,9 @@ function useShows() {
   return { shows, currentShow, skipTo, nowPlaying };
 }
 
-function BufferRing({ playing, muted, analyserRef }: { playing: boolean; muted: boolean; analyserRef: React.MutableRefObject<AnalyserNode | null> }) {
+function BufferRing({ playing, muted, analyserRef, size = 72 }: { playing: boolean; muted: boolean; analyserRef: React.MutableRefObject<AnalyserNode | null>; size?: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animRef = useRef<number>(0);
-  const size = 72;
   const lineW = 2;
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -80,73 +79,89 @@ export default function RadioPlayer() {
   const [showPicker, setShowPicker] = useState(false);
   const [minimized, setMinimized] = useState(false);
   const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null);
-  const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number; dragging: boolean }>({ startX: 0, startY: 0, origX: 0, origY: 0, dragging: false });
+  const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number; dragging: boolean; active: boolean }>({ startX: 0, startY: 0, origX: 0, origY: 0, dragging: false, active: false });
   const miniRef = useRef<HTMLDivElement>(null);
-
-  // Drag handlers for minimized player
-  const onDragStart = useCallback((clientX: number, clientY: number) => {
-    const el = miniRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    dragRef.current = { startX: clientX, startY: clientY, origX: rect.left, origY: rect.top, dragging: false };
-  }, []);
-
-  const onDragMove = useCallback((clientX: number, clientY: number) => {
-    const d = dragRef.current;
-    const dx = clientX - d.startX;
-    const dy = clientY - d.startY;
-    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) d.dragging = true;
-    if (d.dragging) {
-      setDragPos({ x: d.origX + dx, y: d.origY + dy });
-    }
-  }, []);
-
-  const onDragEnd = useCallback(() => {
-    dragRef.current.dragging = false;
-  }, []);
 
   useEffect(() => {
     if (!minimized) return;
-    const onMouseMove = (e: MouseEvent) => onDragMove(e.clientX, e.clientY);
-    const onMouseUp = () => onDragEnd();
-    const onTouchMove = (e: TouchEvent) => { e.preventDefault(); onDragMove(e.touches[0].clientX, e.touches[0].clientY); };
-    const onTouchEnd = () => onDragEnd();
+    const onMove = (clientX: number, clientY: number) => {
+      const d = dragRef.current;
+      if (!d.active) return;
+      const dx = clientX - d.startX;
+      const dy = clientY - d.startY;
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) d.dragging = true;
+      if (d.dragging) setDragPos({ x: d.origX + dx, y: d.origY + dy });
+    };
+    const onUp = () => { dragRef.current.active = false; };
+    const onMouseMove = (e: MouseEvent) => onMove(e.clientX, e.clientY);
+    const onTouchMove = (e: TouchEvent) => { if (dragRef.current.active) { e.preventDefault(); onMove(e.touches[0].clientX, e.touches[0].clientY); } };
     window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
+    window.addEventListener("mouseup", onUp);
     window.addEventListener("touchmove", onTouchMove, { passive: false });
-    window.addEventListener("touchend", onTouchEnd);
+    window.addEventListener("touchend", onUp);
     return () => {
       window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
+      window.removeEventListener("mouseup", onUp);
       window.removeEventListener("touchmove", onTouchMove);
-      window.removeEventListener("touchend", onTouchEnd);
+      window.removeEventListener("touchend", onUp);
     };
-  }, [minimized, onDragMove, onDragEnd]);
+  }, [minimized]);
+
+  const startDrag = (clientX: number, clientY: number) => {
+    const el = miniRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    dragRef.current = { startX: clientX, startY: clientY, origX: rect.left, origY: rect.top, dragging: false, active: true };
+  };
 
   if (minimized) {
-    const pos = dragPos || { x: (typeof window !== "undefined" ? window.innerWidth - 72 : 300), y: (typeof window !== "undefined" ? window.innerHeight - 72 : 600) };
+    const pos = dragPos || { x: (typeof window !== "undefined" ? window.innerWidth - 80 : 300), y: (typeof window !== "undefined" ? window.innerHeight - 80 : 600) };
     return (
       <div ref={miniRef} className="fixed z-50 select-none touch-none"
         style={{ left: pos.x, top: pos.y }}
-        onMouseDown={e => onDragStart(e.clientX, e.clientY)}
-        onTouchStart={e => onDragStart(e.touches[0].clientX, e.touches[0].clientY)}
+        onMouseDown={e => startDrag(e.clientX, e.clientY)}
+        onTouchStart={e => startDrag(e.touches[0].clientX, e.touches[0].clientY)}
       >
-        <div className="relative" style={{ width: 56, height: 56 }}>
-          <BufferRing playing={playing} muted={muted} analyserRef={analyserRef} />
+        {/* Clean circular player */}
+        <div className="relative flex items-center justify-center" style={{ width: 64, height: 64 }}>
+          {/* Solid dark background circle */}
+          <div className="absolute inset-0 rounded-full" style={{
+            background: "hsla(220, 20%, 8%, 0.95)",
+            border: "1px solid hsla(35, 80%, 65%, 0.15)",
+            boxShadow: "0 4px 20px hsla(0,0%,0%,0.5)",
+          }} />
+
+          {/* Animated ring */}
+          <div className="absolute inset-0">
+            <BufferRing playing={playing} muted={muted} analyserRef={analyserRef} size={64} />
+          </div>
+
+          {/* Play/pause button */}
           <button onClick={() => { if (!dragRef.current.dragging) togglePlay(); }}
-            className="absolute inset-0 m-auto w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-90"
-            style={{ background: playing ? "hsla(35,80%,65%,0.15)" : "hsla(35,80%,65%,0.08)" }}>
+            className="relative z-10 w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-90">
             {playing && !muted ? (
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="2" y="1" width="3.5" height="12" rx="1" fill="hsl(35,80%,65%)" /><rect x="8.5" y="1" width="3.5" height="12" rx="1" fill="hsl(35,80%,65%)" /></svg>
+              <svg width="16" height="16" viewBox="0 0 14 14" fill="none">
+                <rect x="2" y="1" width="3.5" height="12" rx="1" fill="hsl(35,80%,65%)" />
+                <rect x="8.5" y="1" width="3.5" height="12" rx="1" fill="hsl(35,80%,65%)" />
+              </svg>
+            ) : muted && playing ? (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="hsl(35,80%,65%)" strokeWidth="2" strokeLinecap="round">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="hsl(35,80%,65%)" />
+                <line x1="23" y1="9" x2="17" y2="15" /><line x1="17" y1="9" x2="23" y2="15" />
+              </svg>
             ) : (
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 1.5L12 7L3 12.5V1.5Z" fill="hsl(35,80%,65%)" /></svg>
+              <svg width="16" height="16" viewBox="0 0 14 14" fill="none">
+                <path d="M4 1.5L12 7L4 12.5V1.5Z" fill="hsl(35,80%,65%)" />
+              </svg>
             )}
           </button>
         </div>
-        <button onClick={() => setMinimized(false)}
-          className="absolute -top-1 -left-1 w-5 h-5 rounded-full flex items-center justify-center text-[10px] text-foreground/50 hover:text-foreground/80 transition-colors"
-          style={{ background: "hsla(0,0%,0%,0.6)" }}>
-          ↑
+
+        {/* Expand button */}
+        <button onClick={() => { if (!dragRef.current.dragging) setMinimized(false); }}
+          className="absolute -bottom-1 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full text-[8px] font-mono tracking-widest uppercase text-foreground/40 hover:text-foreground/70 transition-colors"
+          style={{ background: "hsla(220, 20%, 8%, 0.9)", border: "1px solid hsla(35,80%,65%,0.1)" }}>
+          expand
         </button>
       </div>
     );
