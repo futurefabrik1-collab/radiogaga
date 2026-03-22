@@ -56,31 +56,52 @@ let lastPlayedTypes = [];      // rolling window of last 5 played segment types
 const MAX_TYPE_HISTORY = 5;
 
 // Sequence validator — prevents chaotic scheduling
-function validateSequence(segment) {
-  const type = segment.type;
-  const last = lastPlayedTypes[lastPlayedTypes.length - 1];
-  const last2 = lastPlayedTypes.slice(-2);
+// Uses coarse "category" to avoid over-filtering: talk segments (dj, intro, outro,
+// back-announce, ai-announcement) are all fine after each other since they serve
+// different purposes. Only block truly identical category repeats.
+function segmentCategory(segment) {
+  const t = segment.type;
+  const title = (segment.title || '').toLowerCase();
+  // Track intros/outros are "bridge" — always allowed
+  if (title.startsWith('into —') || title.startsWith('back-announce')) return 'bridge';
+  if (t === 'music') return 'music';
+  if (t === 'jingle') return 'jingle';
+  if (t === 'news') return 'news';
+  if (t === 'weather') return 'weather';
+  if (t === 'advert' || t === 'ai-announcement') return 'advert';
+  if (t === 'shoutout') return 'shoutout';
+  return 'talk'; // dj monologues, guest interviews, reportage
+}
 
-  // Rule 1: never play same type back-to-back (except music)
-  if (type !== 'music' && type === last) return { ok: false, reason: `back-to-back ${type}` };
+function validateSequence(segment) {
+  const cat = segmentCategory(segment);
+  const lastCats = lastPlayedTypes; // these now store categories
+  const last = lastCats[lastCats.length - 1];
+
+  // Bridge segments (intros/outros) are ALWAYS allowed
+  if (cat === 'bridge') return { ok: true };
+
+  // Rule 1: no identical category back-to-back (except music and talk)
+  if (cat === last && cat !== 'music' && cat !== 'talk') return { ok: false, reason: `back-to-back ${cat}` };
 
   // Rule 2: max 2 jingles in any 5-segment window
-  if (type === 'jingle' && lastPlayedTypes.filter(t => t === 'jingle').length >= 2) return { ok: false, reason: 'too many jingles' };
+  if (cat === 'jingle' && lastCats.filter(c => c === 'jingle').length >= 2) return { ok: false, reason: 'too many jingles' };
 
-  // Rule 3: max 1 news per hour (checked by type in recent history)
-  if (type === 'news' && lastPlayedTypes.includes('news')) return { ok: false, reason: 'duplicate news' };
+  // Rule 3: max 1 news in 5-segment window
+  if (cat === 'news' && lastCats.includes('news')) return { ok: false, reason: 'duplicate news' };
 
-  // Rule 4: max 1 weather per hour
-  if (type === 'weather' && lastPlayedTypes.includes('weather')) return { ok: false, reason: 'duplicate weather' };
+  // Rule 4: max 1 weather in 5-segment window
+  if (cat === 'weather' && lastCats.includes('weather')) return { ok: false, reason: 'duplicate weather' };
 
-  // Rule 5: no advert immediately after advert
-  if (type === 'advert' && last === 'advert') return { ok: false, reason: 'back-to-back ads' };
+  // Rule 5: max 2 adverts in 5-segment window
+  if (cat === 'advert' && lastCats.filter(c => c === 'advert').length >= 2) return { ok: false, reason: 'too many ads' };
 
   return { ok: true };
 }
 
-function recordPlayed(type) {
-  lastPlayedTypes.push(type);
+function recordPlayed(type, segment) {
+  const cat = segment ? segmentCategory(segment) : type;
+  lastPlayedTypes.push(cat);
   if (lastPlayedTypes.length > MAX_TYPE_HISTORY) lastPlayedTypes.shift();
 }
 
