@@ -14,8 +14,21 @@ import { moderateAdvert } from './content/moderator.js';
 import { catalogStats } from './content/advertCatalog.js';
 import { archivePoolSize } from './content/archiveMusic.js';
 import { SCHEDULE, setSlotOverride, clearSlotOverride, getCurrentSlot } from './schedule.js';
+import { writeFileSync } from 'node:fs';
+import yaml from 'js-yaml';
 
 const execFileAsync = promisify(execFile);
+const PRODUCER_PASSWORD = process.env.PRODUCER_PASSWORD || 'radioGAGA!!!';
+const YAML_PATH = join(process.cwd(), 'schedule.yaml');
+
+// Simple auth middleware for producer dashboard
+function requireProducerAuth(req, res, next) {
+  const auth = req.headers.authorization;
+  if (!auth || !auth.startsWith('Bearer ') || auth.slice(7) !== PRODUCER_PASSWORD) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  next();
+}
 
 // Multer setup for advert audio uploads
 const UPLOAD_DIR = join(process.cwd(), 'data', 'uploads', 'adverts');
@@ -454,6 +467,64 @@ app.get('/api/costs', (req, res) => {
     totalSegments,
     launchDate: LAUNCH_DATE.toISOString(),
   });
+});
+
+// === PRODUCER DASHBOARD API ===
+
+// Get full schedule as YAML
+app.get('/api/schedule', requireProducerAuth, (req, res) => {
+  try {
+    const raw = readFileSync(YAML_PATH, 'utf8');
+    res.type('text/yaml').send(raw);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get schedule as JSON (parsed)
+app.get('/api/schedule/json', requireProducerAuth, (req, res) => {
+  res.json(SCHEDULE);
+});
+
+// Save schedule (YAML body)
+app.put('/api/schedule', requireProducerAuth, express.text({ type: '*/*', limit: '1mb' }), (req, res) => {
+  try {
+    // Validate YAML parses correctly
+    const parsed = yaml.load(req.body);
+    if (!parsed?.shows || !Array.isArray(parsed.shows)) {
+      return res.status(400).json({ error: 'Invalid schedule: missing shows array' });
+    }
+    // Backup current
+    const backup = readFileSync(YAML_PATH, 'utf8');
+    writeFileSync(YAML_PATH + '.bak', backup);
+    // Write new
+    writeFileSync(YAML_PATH, req.body);
+    res.json({ ok: true, message: 'Schedule saved. Restart required to apply.' });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Get live stats for dashboard
+app.get('/api/dashboard', requireProducerAuth, (req, res) => {
+  const slot = getCurrentSlot();
+  const history = getBroadcastHistory(50);
+  const typeCounts = {};
+  for (const h of history) typeCounts[h.type] = (typeCounts[h.type] || 0) + 1;
+  res.json({
+    currentShow: { id: slot.id, name: slot.name, presenter: slot.presenterName, voice: slot.voice, talkRatio: slot.talkRatio, energy: slot.energy },
+    queueSize: queue.length,
+    archivePool: archivePoolSize(),
+    catalog: catalogStats(),
+    recentSegments: typeCounts,
+    schedule: SCHEDULE.map(s => ({ id: s.id, name: s.name, hours: s.hours, presenter: s.presenterName, coHost: s.coHost?.name, talkRatio: s.talkRatio, energy: s.energy, humor: s.humor, musicMood: s.musicMood })),
+  });
+});
+
+// Trigger restart (graceful)
+app.post('/api/restart', requireProducerAuth, (req, res) => {
+  res.json({ ok: true, message: 'Restarting in 2s...' });
+  setTimeout(() => process.exit(0), 2000); // PM2 auto-restarts
 });
 
 export function startServer() {
