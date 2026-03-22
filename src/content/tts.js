@@ -95,7 +95,7 @@ export async function concatAudioFiles(paths, keepSources = false) {
     '-i', listPath,
     '-c', 'copy',
     '-y', outPath,
-  ]);
+  ], { timeout: 60_000 });
 
   unlinkSync(listPath);
   if (!keepSources) {

@@ -147,7 +147,7 @@ async function getAudioDurationMs(filePath) {
       '-show_entries', 'format=duration',
       '-of', 'default=noprint_wrappers=1:nokey=1',
       filePath,
-    ]);
+    ], { timeout: 10_000 });
     return Math.round(parseFloat(stdout.trim()) * 1000);
   } catch {
     return null;
@@ -205,13 +205,19 @@ function pipeFile(filePath, stdin) {
       'pipe:1',
     ], { stdio: ['ignore', 'pipe', 'pipe'] });
 
+    // Timeout: kill decoder if it hangs (corrupt file, stalled read)
+    const timeout = setTimeout(() => {
+      console.warn(`[stream] pipeFile timeout (5min), killing decoder: ${filePath}`);
+      decoder.kill('SIGKILL');
+    }, 300_000);
+
     decoder.stderr.on('data', () => {});
-    decoder.stdout.on('error', () => { decoder.kill(); resolve(); });
-    stdin.on('error', () => { decoder.kill(); resolve(); });
-    decoder.on('error', () => resolve());
+    decoder.stdout.on('error', () => { clearTimeout(timeout); decoder.kill(); resolve(); });
+    stdin.on('error', () => { clearTimeout(timeout); decoder.kill(); resolve(); });
+    decoder.on('error', () => { clearTimeout(timeout); resolve(); });
 
     decoder.stdout.pipe(stdin, { end: false });
-    decoder.on('close', resolve);
+    decoder.on('close', () => { clearTimeout(timeout); resolve(); });
   });
 }
 
@@ -221,7 +227,9 @@ async function pipeSegment(segment, stdin) {
     console.warn(`[stream] File not found, skipping: ${segment.path}`);
     return;
   }
+  if (!stdin || stdin.destroyed) return;
 
+  const procSnapshot = ffmpegProc; // snapshot to detect restart mid-pipe
   console.log(`[stream] >> ${segment.type.toUpperCase()}: ${segment.title}`);
 
   // Post to Discord (non-blocking)
@@ -261,7 +269,7 @@ async function pipeSegment(segment, stdin) {
         }
         args.push('-af', filters.join(','),
           '-c:a', 'libmp3lame', '-ab', '128k', '-ar', '44100', '-y', processedPath);
-        await execFileAsync('ffmpeg', args);
+        await execFileAsync('ffmpeg', args, { timeout: 60_000 });
         segment.path = processedPath;
         if (durationMs > MAX_MUSIC_MS) durationMs = MAX_MUSIC_MS;
       } else {
@@ -270,7 +278,7 @@ async function pipeSegment(segment, stdin) {
           '-i', segment.path,
           '-af', filters.join(','),
           '-c:a', 'libmp3lame', '-ab', '128k', '-ar', '44100', '-y', processedPath,
-        ]);
+        ], { timeout: 60_000 });
         segment.path = processedPath;
       }
     } catch (err) {
@@ -298,6 +306,11 @@ async function pipeSegment(segment, stdin) {
   // Add 300ms safety buffer — FFmpeg's -re flag plays in real time but
   // the pipe completes nearly instantly, so we must wait the full duration
   // plus a small margin to prevent the tail of speech being cut off.
+  // If FFmpeg restarted during this segment, skip the wait — audio went nowhere
+  if (ffmpegProc !== procSnapshot) {
+    console.warn('[stream] FFmpeg restarted during segment, skipping wait');
+    return;
+  }
   const elapsed = Date.now() - pipeStart;
   const remaining = finalDurationMs - elapsed + 100; // 100ms safety buffer (tight)
   if (remaining > 50) {
@@ -307,12 +320,24 @@ async function pipeSegment(segment, stdin) {
 
 // Pipe silence to keep FFmpeg/Icecast connection alive while waiting for content.
 async function pipeSilence(stdin) {
+  if (!stdin || stdin.destroyed) return;
   if (!silenceReady || !existsSync(SILENCE_PATH)) {
-    await new Promise(r => setTimeout(r, 500));
-    return;
+    await ensureSilence(); // retry
+    if (!silenceReady) {
+      // Raw PCM zeros as last resort (1s of silence at 44100Hz stereo 16-bit)
+      const zeros = Buffer.alloc(44100 * 2 * 2);
+      try { if (stdin && !stdin.destroyed) stdin.write(zeros); } catch {}
+      await new Promise(r => setTimeout(r, 1000));
+      return;
+    }
   }
   await pipeFile(SILENCE_PATH, stdin);
-  await new Promise(r => setTimeout(r, 1000)); // silence is 2s but only wait 1s to keep checking queue
+  await new Promise(r => setTimeout(r, 1000));
+}
+
+// Safe stdin accessor — returns null if FFmpeg is dead
+function getStdin() {
+  return ffmpegProc?.stdin?.destroyed === false ? ffmpegProc.stdin : null;
 }
 
 function startFFmpeg() {
@@ -649,7 +674,11 @@ async function runLoop() {
     }
 
     // 4. Last resort — silence to keep connection alive
-    await pipeSilence(ffmpegProc.stdin);
+    if (ffmpegProc?.stdin && !ffmpegProc.stdin.destroyed) {
+      await pipeSilence(ffmpegProc.stdin);
+    } else {
+      await new Promise(r => setTimeout(r, 500)); // wait for FFmpeg respawn
+    }
   }
 }
 
@@ -658,7 +687,17 @@ export function startStream() {
   running = true;
   console.log('[stream] Starting stream loop');
   ffmpegProc = startFFmpeg();
-  runLoop().catch(err => console.error('[stream] Loop crashed:', err));
+  // Auto-restart loop on crash — the loop should never die permanently
+  function launchLoop() {
+    runLoop().catch(err => {
+      console.error('[stream] Loop crashed:', err.message);
+      if (running) {
+        console.log('[stream] Restarting loop in 2s...');
+        setTimeout(launchLoop, 2000);
+      }
+    });
+  }
+  launchLoop();
 }
 
 export function stopStream() {
