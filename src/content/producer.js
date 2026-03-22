@@ -32,8 +32,21 @@ import { generateReportage } from './reportage.js';
 import { existsSync } from 'node:fs';
 import { getNextListenerAd, incrementAdPlayCount } from '../db.js';
 import { initFoleyPool, startBedWorker } from './studioFx.js';
+import { processSegment } from '../stream.js';
+
+// Pre-process and enqueue — all audio processing happens here, not in the stream loop
+async function enqueue(segment) {
+  try {
+    const processed = await processSegment(segment);
+    queue.push(processed);
+  } catch (err) {
+    console.warn(`[producer] processSegment failed, enqueueing raw: ${err.message}`);
+    queue.push(segment);
+  }
+}
 
 const POLL_INTERVAL_MS = 4000;
+const MIN_QUEUE_SIZE = 5; // maintain minimum buffer
 const HEADLINE_TTL_MS = 15 * 60 * 1000;
 const EMERGENCY_BUFFER_S = 60; // pre-emptively pull from catalog if queue below this
 const MAX_MUSIC_STREAK_S = 12 * 60; // force a talk segment if no talk in 12 minutes (guarantees talk every 15 min with buffer)
@@ -189,7 +202,7 @@ async function produceDJSegment(slot) {
   const talkSeconds = script ? script.split(/\s+/).length / 2.5 : 60;
   ratioTracker.add('talk', talkSeconds);
 
-  queue.push({
+  await enqueue({
     path, type: 'dj', title, script,
     slot: slot.id,
     sources: used.map(h => h.source),
@@ -221,7 +234,7 @@ async function produceMusicSegment(slot) {
       const outro = await generateTrackOutro(slot, lastTrackInfo);
       const outroWords = outro.script ? outro.script.split(/\s+/).length : 30;
       ratioTracker.add('talk', outroWords / 2.5);
-      queue.push({ ...outro, createdAt: new Date().toISOString() });
+      await enqueue({ ...outro, createdAt: new Date().toISOString() });
     } catch (err) {
       console.warn('[producer] Track outro failed:', err.message);
     }
@@ -245,7 +258,7 @@ async function produceMusicSegment(slot) {
       const intro = await generateTrackIntro({ ...slot, musicMood: mood }, trackInfo);
       const introWords = intro.script ? intro.script.split(/\s+/).length : 30;
       ratioTracker.add('talk', introWords / 2.5);
-      queue.push({ ...intro, createdAt: new Date().toISOString() });
+      await enqueue({ ...intro, createdAt: new Date().toISOString() });
       introQueued = true;
     } catch (err) {
       console.warn(`[producer] Track intro attempt ${attempt + 1} failed:`, err.message);
@@ -259,7 +272,7 @@ async function produceMusicSegment(slot) {
     try {
       const { path } = await textToMp3(fallbackText, slot.voice, { energy: slot.energy });
       ratioTracker.add('talk', fallbackText.split(/\s+/).length / 2.5);
-      queue.push({
+      await enqueue({
         path, type: 'dj',
         title: `Fallback intro — ${trackInfo.title}`,
         slot: slot.id,
@@ -274,7 +287,7 @@ async function produceMusicSegment(slot) {
   if (archiveTrack) {
     console.log(`[producer] Archive track: ${archiveTrack.title}`);
     ratioTracker.add('music', archiveTrack.duration || slot.musicDuration);
-    queue.push({
+    await enqueue({
       ...archiveTrack,
       type: 'music',
       slot: slot.id,
@@ -289,7 +302,7 @@ async function produceMusicSegment(slot) {
       const segment = await generateMusic({ slot: overrideSlot, duration: slot.musicDuration });
       lagTracker.add('music', Date.now() - t0);
       ratioTracker.add('music', segment.duration || slot.musicDuration);
-      queue.push({ ...segment, slot: slot.id, createdAt: new Date().toISOString() });
+      await enqueue({ ...segment, slot: slot.id, createdAt: new Date().toISOString() });
       lastTrackInfo = trackInfo;
     } catch (err) {
       console.error('[producer] Music generation failed, skipping:', err.message);
@@ -310,7 +323,7 @@ async function produceGuestSegment(slot) {
   try {
     console.log(`[producer] ${slot.name}: guest interview`);
     const segment = await generateGuestSegment(slot);
-    queue.push({ ...segment, createdAt: new Date().toISOString() });
+    await enqueue({ ...segment, createdAt: new Date().toISOString() });
     lastTalkTime = Date.now();
   } catch (err) {
     console.error('[producer] Guest segment failed:', err.message);
@@ -331,7 +344,7 @@ async function produceNewsBulletin() {
     // Follow news with weather forecast
     try {
       const weather = await generateWeatherForecast();
-      queue.push(weather);
+      await enqueue(weather);
       console.log(`[producer] Weather queued: ${weather.title}`);
     } catch (err) {
       console.error('[producer] Weather failed:', err.message);
@@ -339,7 +352,7 @@ async function produceNewsBulletin() {
 
     // Close news block with radioGAGA Sting
     if (bulletin.closingSting && existsSync(bulletin.closingSting)) {
-      queue.push({
+      await enqueue({
         path: bulletin.closingSting,
         type: 'jingle',
         title: 'radioGAGA Sting',
@@ -360,7 +373,7 @@ async function produceAdvert(slot) {
     const listenerAd = getNextListenerAd();
     if (listenerAd && listenerAd.approved_audio_path && existsSync(listenerAd.approved_audio_path)) {
       incrementAdPlayCount(listenerAd.id);
-      queue.push({
+      await enqueue({
         path: listenerAd.approved_audio_path,
         type: 'advert',
         title: `Sponsored: ${listenerAd.business_name} — ${listenerAd.product}`,
@@ -377,7 +390,7 @@ async function produceAdvert(slot) {
 
   try {
     const advert = await generateAdvert(slot);
-    queue.push(advert);
+    await enqueue(advert);
     console.log(`[producer] Advert queued: ${advert.title}`);
   } catch (err) {
     console.error('[producer] Advert failed, skipping:', err.message);
@@ -429,7 +442,7 @@ async function loop() {
       (async () => {
         try {
           const reportage = await generateReportage(slot, headlines);
-          queue.push(reportage);
+          await enqueue(reportage);
           lastTalkTime = Date.now();
           console.log(`[producer] Reportage queued: ${reportage.title}`);
         } catch (err) {
@@ -442,7 +455,7 @@ async function loop() {
     if (queuedSeconds() < EMERGENCY_BUFFER_S && catalogSize() > 0) {
       const filler = getFromCatalog(slot.advertHumor);
       if (filler) {
-        queue.push({ ...filler, type: 'advert', slot: slot.id });
+        await enqueue({ ...filler, type: 'advert', slot: slot.id });
         console.log(`[producer] Emergency filler: ${filler.title} (catalog: ${catalogSize()} left)`);
       }
       continue;
@@ -484,7 +497,7 @@ async function loop() {
         if (Date.now() - lastAIAnnouncementTime >= AI_ANNOUNCEMENT_INTERVAL_MS) {
           try {
             const announcement = await generateAIAnnouncement();
-            queue.push(announcement);
+            await enqueue(announcement);
             lastAIAnnouncementTime = Date.now();
             console.log(`[producer] AI announcement queued: ${announcement.title}`);
           } catch (err) {

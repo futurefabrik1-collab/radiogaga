@@ -109,7 +109,9 @@ let lastFallbackTrack = null;  // track info for back-announce on archive fallba
 let fallbackTrackCount = 0;     // counts archive fallback tracks for ad cadence
 let lastShoutoutTime = 0;       // timestamp of last shoutout played
 let lastJingleTime = 0;         // timestamp of last jingle played
-let firstJinglePlayed = false;   // play long jingle only on first load
+// Persist firstJinglePlayed to disk so PM2 restarts don't replay the 72s jingle
+const JINGLE_FLAG = join(ROOT, 'data', 'jingle-played.flag');
+let firstJinglePlayed = existsSync(JINGLE_FLAG);
 let lastStreamSlotId = null;    // detect show transitions
 let pendingIntro = null;         // pre-generated intro for next archive track
 const DEFAULT_SHOUTOUT_COOLDOWN_MS = 5 * 60_000; // 1 shoutout per 5 min (overridable per show)
@@ -192,6 +194,57 @@ async function crossfadeMusicVoice(musicPath, voicePath, overlapS = 4) {
   }
 }
 
+// Pre-process a segment: volume normalisation, fade-in/out, trim.
+// Called by the producer BEFORE enqueueing so the stream loop has zero processing delay.
+const MAX_MUSIC_MS = 240_000; // 4 min hard cap for music tracks
+const FADE_OUT_S = 4;
+const FADE_IN_S = 0.5;
+
+export async function processSegment(segment) {
+  if (!segment.path || !existsSync(segment.path)) return segment;
+
+  let durationMs = await getAudioDurationMs(segment.path)
+    ?? (segment.duration ? segment.duration * 1000 : 30000);
+  const durationS = durationMs / 1000;
+  const isMusic = segment.type === 'music';
+
+  try {
+    const processedPath = segment.path.replace(/\.mp3$/, '-proc.mp3');
+    const filters = [];
+
+    filters.push('volume=1.5');
+    filters.push(`afade=t=in:d=${FADE_IN_S}`);
+
+    if (isMusic) {
+      const effectiveDuration = Math.min(durationS, MAX_MUSIC_MS / 1000);
+      filters.push(`afade=t=out:st=${effectiveDuration - FADE_OUT_S}:d=${FADE_OUT_S}`);
+
+      const args = ['-i', segment.path];
+      if (durationMs > MAX_MUSIC_MS) {
+        args.push('-t', String(MAX_MUSIC_MS / 1000));
+        durationMs = MAX_MUSIC_MS;
+      }
+      args.push('-af', filters.join(','),
+        '-c:a', 'libmp3lame', '-ab', '128k', '-ar', '44100', '-y', processedPath);
+      await execFileAsync('ffmpeg', args, { timeout: 60_000 });
+      segment.path = processedPath;
+    } else {
+      await execFileAsync('ffmpeg', [
+        '-i', segment.path,
+        '-af', filters.join(','),
+        '-c:a', 'libmp3lame', '-ab', '128k', '-ar', '44100', '-y', processedPath,
+      ], { timeout: 60_000 });
+      segment.path = processedPath;
+    }
+  } catch (err) {
+    console.warn(`[stream] processSegment failed, using raw: ${err.message}`);
+  }
+
+  // Re-measure after processing
+  segment.durationMs = await getAudioDurationMs(segment.path) ?? durationMs;
+  return segment;
+}
+
 // Decode an MP3 file to raw s16le PCM and pipe into FFmpeg's stdin.
 function pipeFile(filePath, stdin) {
   return new Promise((resolve) => {
@@ -236,59 +289,11 @@ async function pipeSegment(segment, stdin) {
   const slot = getCurrentSlot();
   postNowPlaying(segment, slot.name, slot.presenterName).catch(() => {});
 
-  const MAX_MUSIC_MS = 240_000; // 4 min hard cap for music tracks
-  const FADE_OUT_S = 4;   // fade-out duration for music tracks
-  const FADE_IN_S = 0.5;  // subtle fade-in on all segments to prevent click/pop
-  let durationMs = await getAudioDurationMs(segment.path)
+  // Duration — use pre-computed if available (from processSegment), else measure
+  let durationMs = segment.durationMs
+    ?? await getAudioDurationMs(segment.path)
     ?? (segment.duration ? segment.duration * 1000 : 30000);
-
-  const durationS = durationMs / 1000;
-  const isMusic = segment.type === 'music';
-  const needsProcessing = isMusic || segment.type === 'jingle';
-
-  // Music and jingles: apply fade-out (and trim if over 4 min)
-  // All other segments: apply a subtle fade-in to prevent pops
-  {
-    try {
-      const processedPath = segment.path.replace(/\.mp3$/, '-proc.mp3');
-      const filters = [];
-
-      // Loudness normalisation to -12 LUFS (broadcast standard) + fade-in
-      filters.push(`loudnorm=I=-12:TP=-1:LRA=7`);
-      filters.push(`afade=t=in:d=${FADE_IN_S}`);
-
-      if (isMusic) {
-        const effectiveDuration = Math.min(durationS, MAX_MUSIC_MS / 1000);
-        // Fade-out on music tracks
-        filters.push(`afade=t=out:st=${effectiveDuration - FADE_OUT_S}:d=${FADE_OUT_S}`);
-
-        const args = ['-i', segment.path];
-        if (durationMs > MAX_MUSIC_MS) {
-          args.push('-t', String(MAX_MUSIC_MS / 1000));
-          console.log(`[stream] Trimmed ${Math.round(durationS)}s → ${MAX_MUSIC_MS / 1000}s: ${segment.title}`);
-        }
-        args.push('-af', filters.join(','),
-          '-c:a', 'libmp3lame', '-ab', '128k', '-ar', '44100', '-y', processedPath);
-        await execFileAsync('ffmpeg', args, { timeout: 60_000 });
-        segment.path = processedPath;
-        if (durationMs > MAX_MUSIC_MS) durationMs = MAX_MUSIC_MS;
-      } else {
-        // Non-music: just fade-in
-        await execFileAsync('ffmpeg', [
-          '-i', segment.path,
-          '-af', filters.join(','),
-          '-c:a', 'libmp3lame', '-ab', '128k', '-ar', '44100', '-y', processedPath,
-        ], { timeout: 60_000 });
-        segment.path = processedPath;
-      }
-    } catch (err) {
-      // If processing fails, play the original file unchanged
-      console.warn(`[stream] Audio processing failed, playing raw: ${err.message}`);
-    }
-  }
-
-  // Re-measure duration after processing (ffmpeg can slightly change it)
-  const finalDurationMs = await getAudioDurationMs(segment.path) ?? durationMs;
+  const finalDurationMs = durationMs;
 
   const pipeStart = Date.now();
   await pipeFile(segment.path, stdin);
@@ -345,8 +350,9 @@ function startFFmpeg() {
 
   // Use raw s16le PCM on stdin to avoid MP3 frame boundary errors when
   // concatenating multiple files. Each segment is decoded to PCM before piping.
+  // No -re flag: pacing is handled by pipeSegment's setTimeout wait.
+  // -re would cause buffer underruns when processing gaps exceed the buffer.
   const proc = spawn('ffmpeg', [
-    '-re',
     '-f', 's16le',
     '-ar', '44100',
     '-ac', '2',
@@ -396,6 +402,7 @@ async function runLoop() {
     // 0a. Cold start: intro dialogue only (ONCE)
     if (!firstJinglePlayed && ffmpegProc) {
       firstJinglePlayed = true;
+      try { appendFileSync(JINGLE_FLAG, String(Date.now())); } catch {}
       lastJingleTime = Date.now();
       lastPromoTime = Date.now();
       const slot = getCurrentSlot();
