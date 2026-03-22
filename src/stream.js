@@ -376,9 +376,17 @@ async function runLoop() {
       const slot = getCurrentSlot();
       lastStreamSlotId = slot.id;
 
+      // Play long jingle first, then intro dialogue
+      const longJingle = join(ROOT, 'assets', 'jingle-aimusic-long.mp3');
+      if (existsSync(longJingle)) {
+        console.log('[stream] Cold start: long jingle');
+        try { await pipeSegment({ path: longJingle, type: 'jingle', title: 'radioGAGA AI Music (long)' }, ffmpegProc.stdin); } catch {}
+        recordPlayed('jingle', { type: 'jingle' });
+      }
       if (existsSync(INTRO_DIALOGUE.path)) {
         console.log('[stream] Cold start: intro dialogue');
         try { await pipeSegment({ ...INTRO_DIALOGUE, type: 'jingle' }, ffmpegProc.stdin); } catch {}
+        recordPlayed('jingle', { type: 'jingle' });
       }
     }
 
@@ -496,14 +504,10 @@ async function runLoop() {
       const next = queue.peek();
       const validation = validateSequence(next);
       if (!validation.ok) {
-        // Skip this segment — try the one after it, or defer
+        // Drop the segment — don't re-queue (was causing infinite skip loops)
+        // The producer will generate fresh content
         const skipped = queue.shift();
-        console.log(`[stream] Sequence skip: ${skipped.type} "${skipped.title?.slice(0, 30)}" — ${validation.reason}`);
-        // Don't re-queue news/weather (prevents infinite loop of duplicates)
-        // Do re-queue music/dj/advert at the back for later
-        if (!['news', 'weather', 'jingle'].includes(skipped.type)) {
-          queue.push(skipped);
-        }
+        console.log(`[stream] Sequence skip: ${segmentCategory(skipped)} "${skipped.title?.slice(0, 30)}" — ${validation.reason}`);
         continue;
       }
 

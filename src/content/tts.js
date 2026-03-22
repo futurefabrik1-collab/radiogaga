@@ -59,6 +59,11 @@ function jitterProsody(base) {
 // opts.energy — show energy level (1–5), controls rate/pitch prosody.
 // opts.jitter — if true, add small random variation (good for dialogue lines).
 export async function textToMp3(text, voiceOverride = null, opts = {}) {
+  // Guard: edge-tts crashes on empty or punctuation-only input
+  const speakable = (text || '').replace(/[\s\p{P}\p{S}]/gu, '');
+  if (!speakable || speakable.length < 2) {
+    throw new Error(`TTS input too short or punctuation-only: "${(text || '').slice(0, 30)}"`);
+  }
   const voice = voiceOverride || nextVoice();
   const outPath = join(AUDIO_DIR, `${randomUUID()}.mp3`);
 
